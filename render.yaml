@@ -3,7 +3,7 @@ services:
     name: carousel-studio
     runtime: node
     plan: free
-    buildCommand: npm install --include=dev && npm run build && npx drizzle-kit push
+    buildCommand: npm install --include=dev && npm rebuild better-sqlite3 && npm run build && npx drizzle-kit push
     startCommand: NODE_ENV=production node dist/index.cjs
     envVars:
       - key: NODE_ENV

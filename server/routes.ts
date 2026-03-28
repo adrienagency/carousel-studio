@@ -214,7 +214,7 @@ export async function registerRoutes(
   // ─── LLM Generate Slides (with model choice + brand kit colors) ──
   app.post("/api/generate-slides", async (req, res) => {
     try {
-      const { text, brandKit, platform, model, width, height } = req.body;
+      const { text, brandKit, platform, model, width, height, decoImages, infoImages, author, topline } = req.body;
       if (!text) return res.status(400).json({ error: "Text required" });
 
       const { default: Anthropic } = await import("@anthropic-ai/sdk");
@@ -223,6 +223,11 @@ export async function registerRoutes(
       const w = width || 1080;
       const h = height || 1350;
       const scale = w / 1080;
+
+      const hasInfoImages = Array.isArray(infoImages) && infoImages.length > 0;
+      const infoImagesInstruction = hasInfoImages
+        ? `\nSi des images informatives sont fournies, certaines slides "content" doivent inclure "hasImage": true.\nLe texte de ces slides doit être plus court (max 15 mots pour le body) pour laisser de la place à l'image.`
+        : "";
 
       const systemPrompt = `Tu es un expert en creation de carrousels pour reseaux sociaux (LinkedIn, Instagram).
 Analyse le texte fourni et cree un carrousel percutant.
@@ -235,7 +240,7 @@ Regles :
 - Chaque slide doit pouvoir se lire independamment
 - Utilise un langage direct et impactant
 - ANALYSE EN PROFONDEUR le texte, ne te contente pas de copier les premieres phrases
-- Reformule, synthetise, rend le contenu plus percutant
+- Reformule, synthetise, rend le contenu plus percutant${infoImagesInstruction}
 
 Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Format :
 [

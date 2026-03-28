@@ -293,7 +293,10 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
 
       // LLM-based generation
       if (selectedModel !== "local") {
+        let llmError = "";
         try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
           const res = await fetch("./api/generate-slides", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -304,27 +307,39 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
               model: selectedModel,
               width: w,
               height: h,
-              // New fields
               decoImages: decoImages.map((img) => ({ id: img.id, name: img.name })),
               infoImages: infoImages.map((img) => ({ id: img.id, name: img.name, dataUrl: img.dataUrl })),
               author: showAuthor ? { name: authorName, role: authorRole, photo: authorPhoto, fontSize: authorFontSize } : null,
               topline: showTopline ? { text: toplineText, fontSize: toplineFontSize } : null,
               refImages: refImages.map((img) => ({ dataUrl: img.dataUrl })),
             }),
+            signal: controller.signal,
           });
+          clearTimeout(timeout);
           if (res.ok) {
             const data = await res.json();
-            if (data.slides) {
+            if (data.slides && data.slides.length > 0) {
+              console.log(`[LLM] Generation reussie avec ${data.model || selectedModel} — ${data.slides.length} slides`);
               slides = injectOverlays(data.slides, overlayOpts);
               const firstText = slides[0]?.elements.find((e: any) => e.type === "text");
               setIsGenerating(false);
               setText("");
               onCreate({ title: firstText?.content || "Sans titre", slides, settings: { width: w, height: h, platform: getPlatform() } });
               return;
+            } else {
+              llmError = "LLM n'a retourne aucune slide";
             }
+          } else {
+            const errData = await res.json().catch(() => ({ error: res.statusText }));
+            llmError = errData.error || `HTTP ${res.status}`;
           }
-        } catch (e) {
-          console.warn("LLM generation failed, falling back to local:", e);
+        } catch (e: any) {
+          llmError = e.name === "AbortError" ? "Timeout (>2min)" : (e.message || "Erreur inconnue");
+        }
+        // Show LLM error to user, then fall back to local
+        if (llmError) {
+          console.error(`[LLM] Echec: ${llmError}. Fallback sur generateur local.`);
+          alert(`Generation IA echouee: ${llmError}\n\nLe generateur local sera utilise a la place.`);
         }
       }
 

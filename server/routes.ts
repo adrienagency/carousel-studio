@@ -229,18 +229,25 @@ export async function registerRoutes(
         ? `\nSi des images informatives sont fournies, certaines slides "content" doivent inclure "hasImage": true.\nLe texte de ces slides doit être plus court (max 15 mots pour le body) pour laisser de la place à l'image.`
         : "";
 
-      const systemPrompt = `Tu es un directeur artistique expert en creation de carrousels pour reseaux sociaux (LinkedIn, Instagram).
-Tu dois ANALYSER EN PROFONDEUR le texte fourni, en extraire les idees les plus percutantes, et les REFORMULER dans un style direct et impactant.
+      // Truncate text to ~16000 chars to stay within limits
+      const truncatedText = text.length > 16000 ? text.slice(0, 16000) + "\n\n[texte tronque a 16000 caracteres]" : text;
 
-REGLES STRICTES :
-- NE COPIE JAMAIS le texte mot pour mot. REFORMULE chaque point.
-- Slide 1 (cover) : Titre accrocheur de max 8 mots + sous-titre de max 15 mots. Le titre doit donner envie de swiper.
-- Slides intermediaires (content) : 1 idee forte par slide. Titre percutant de max 6 mots + description de max 30 mots. SELECTIONNE les points les plus interessants du texte, pas les premiers.
-- Derniere slide (end) : Call-to-action engageant + mention @handle
-- Nombre total de slides : entre 5 et 10 selon la richesse du contenu
-- Chaque slide doit pouvoir se lire independamment
-- Style : direct, concret, pas de jargon. Comme si tu parlais a un ami.
-- PARCOURS LE TEXTE EN ENTIER avant de commencer. Ne t'arrete pas aux premieres lignes.${infoImagesInstruction}
+      const systemPrompt = `Tu es un directeur artistique senior, expert en creation de carrousels viraux pour LinkedIn et Instagram.
+
+Ta methode de travail :
+1. LIS LE TEXTE EN ENTIER du debut a la fin
+2. IDENTIFIE les 5 a 8 idees les plus fortes, les plus originales, les plus partageables — PEU IMPORTE OU elles se trouvent dans le texte
+3. CLASSE-LES par impact decroissant (la plus forte en cover)
+4. REFORMULE chaque idee dans un style percutant, concret, conversationnel
+
+REGLES :
+- NE SUIS PAS l'ordre du texte. Selectionne et reorganise par IMPACT.
+- NE COPIE JAMAIS le texte mot pour mot. REFORMULE toujours.
+- Cover (slide 1) : Titre choc de max 8 mots qui donne envie de swiper + sous-titre de max 15 mots
+- Content (slides 2 a N-1) : 1 idee forte par slide. Titre de max 6 mots + corps de max 30 mots.
+- End (derniere slide) : CTA engageant + @handle
+- Nombre de slides : 5 a 10 selon la richesse
+- Style : direct, concret, zero jargon. Comme une conversation entre pros.${infoImagesInstruction}
 
 Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Format :
 [
@@ -278,8 +285,8 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
       if (hasRefImages) {
         // Multimodal: send reference images + text
         const contentParts: any[] = [];
-        contentParts.push({ type: "text", text: "Voici des references visuelles de carousels dont tu dois t'inspirer pour le style, la mise en page et le ton :" });
-        for (const img of refImages.slice(0, 4)) { // Max 4 reference images
+        contentParts.push({ type: "text", text: "REFERENCES VISUELLES : Analyse ces images de carousels existants. Observe attentivement la disposition, la hierarchie typographique, le style, les contrastes, les couleurs. Tu dois t'en inspirer fortement pour structurer et designer ton carousel :" });
+        for (const img of refImages.slice(0, 4)) {
           if (img.dataUrl) {
             const base64Match = img.dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
             if (base64Match) {
@@ -290,10 +297,10 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
             }
           }
         }
-        contentParts.push({ type: "text", text: `\n\nMaintenant, cree un carrousel a partir de ce texte. Analyse EN PROFONDEUR et reformule de maniere percutante. Inspire-toi du style visuel des references ci-dessus. Ne copie JAMAIS le texte mot pour mot :\n\n${text}` });
+        contentParts.push({ type: "text", text: `\n\nINSTRUCTION : Cree un carrousel INSPIRE DU STYLE DES REFERENCES ci-dessus. Reprends leur approche (disposition, longueur des textes, ton, structure). Reformule le contenu ci-dessous en y appliquant ce style :\n\n${truncatedText}` });
         userContent = contentParts;
       } else {
-        userContent = `Cree un carrousel a partir de ce texte. Analyse EN PROFONDEUR et reformule de maniere percutante. Ne copie JAMAIS le texte mot pour mot :\n\n${text}`;
+        userContent = `Cree un carrousel a partir du texte ci-dessous. SELECTIONNE les idees par ordre d'impact (pas par ordre d'apparition). Reformule de maniere percutante :\n\n${truncatedText}`;
       }
       
       const messageParams: any = {
@@ -420,9 +427,10 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
         };
       });
 
-      res.json({ slides, model: chosenModel });
+      console.log(`[LLM] Generation OK — model=${chosenModel}, thinking=${isThinking}, slides=${slides.length}, text=${truncatedText.length}chars, refImages=${hasRefImages ? refImages.length : 0}`);
+      res.json({ slides, model: chosenModel, thinking: isThinking });
     } catch (err: any) {
-      console.error("LLM generation error:", err);
+      console.error("[LLM] Generation FAILED:", err.message || err);
       res.status(500).json({ error: err.message || "Generation failed" });
     }
   });

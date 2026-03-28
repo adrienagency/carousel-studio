@@ -269,7 +269,8 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
 
       // Handle thinking mode: strip "_thinking" suffix
       const isThinking = model?.endsWith("_thinking");
-      const chosenModel = isThinking ? model.replace("_thinking", "") : (model || "claude_sonnet_4_6");
+          const rawModel = isThinking ? model.replace("_thinking", "") : (model || "claude_sonnet_4_6");
+    const chosenModel = rawModel.replace(/_/g, "-");
 
       // Build user message content — may include reference images (vision)
       const hasRefImages = Array.isArray(refImages) && refImages.length > 0;
@@ -449,7 +450,7 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
       const allTexts = texts.map((t) => t.content).join("\n---SEPARATOR---\n");
 
       const message = await client.messages.create({
-        model: "claude_haiku_4_5",
+        model: "claude-haiku-4-5",
         max_tokens: 4000,
         messages: [
           { role: "user", content: `Translate the following texts to ${targetLang || "American English"}. Keep the same tone and style. Return ONLY the translated texts separated by ---SEPARATOR--- (same order, same count). Do not add anything else.\n\n${allTexts}` },

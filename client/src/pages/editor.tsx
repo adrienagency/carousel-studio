@@ -10,6 +10,7 @@ import {
   createImageElement,
   GuestTemplate,
   GuestBrandKit,
+  BrandKitImage,
 } from "@/types/carousel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,6 +89,8 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
+  Group,
+  Ungroup,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -464,6 +467,63 @@ function SlideRenderer({
               />
             )}
 
+            {element.type === "group" && element.children && (
+              <div
+                className="w-full h-full"
+                style={{
+                  position: "relative",
+                  ...(element.groupAutoLayout ? {
+                    display: "flex",
+                    flexDirection: element.groupDirection === "horizontal" ? "row" : "column",
+                    gap: (element.groupGap ?? 8) * scale,
+                    padding: (element.groupPadding ?? 0) * scale,
+                    alignItems: element.groupAlign || "flex-start",
+                  } : {}),
+                }}
+              >
+                {element.children
+                  .filter(c => c.visible !== false)
+                  .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
+                  .map(child => {
+                    const childStyle: React.CSSProperties = element.groupAutoLayout
+                      ? {
+                          position: "relative",
+                          width: child.type === "text" ? "100%" : child.width * scale,
+                          height: child.type === "text" && child.style.textAutoHeight ? "auto" : child.height * scale,
+                        }
+                      : {
+                          position: "absolute",
+                          left: child.x * scale,
+                          top: child.y * scale,
+                          width: child.width * scale,
+                          height: child.height * scale,
+                        };
+                    return (
+                      <div key={child.id} style={childStyle}>
+                        {child.type === "text" && (
+                          <div className="w-full h-full whitespace-pre-wrap" style={{
+                            fontSize: (child.style.fontSize || 24) * scale,
+                            fontFamily: child.style.fontFamily || "Inter",
+                            fontWeight: child.style.fontWeight || 400,
+                            color: child.style.color || "#000",
+                            textAlign: child.style.textAlign || "left",
+                            lineHeight: child.style.lineHeight || 1.4,
+                            wordBreak: "break-word",
+                            overflow: "hidden",
+                          }}>{child.content || "Texte"}</div>
+                        )}
+                        {child.type === "image" && child.src && (
+                          <img src={child.src} alt="" className="w-full h-full" style={{ objectFit: child.style.objectFit || "cover", borderRadius: child.style.borderRadius ? child.style.borderRadius * scale : 0 }} draggable={false} />
+                        )}
+                        {child.type === "shape" && (
+                          <div className="w-full h-full" style={{ backgroundColor: child.style.backgroundColor || "#6366F1", borderRadius: child.style.borderRadius ? child.style.borderRadius * scale : 0 }} />
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
             {isSelected && !element.locked && interactive && (
               <>
                 {resizeHandles.map((handle) => (
@@ -497,6 +557,7 @@ function PropertiesPanel() {
     slides,
     activeSlideIndex,
     selectedElementId,
+    selectedElementIds,
     settings,
     updateSlide,
     updateElement,
@@ -507,6 +568,9 @@ function PropertiesPanel() {
     bringToFront,
     sendToBack,
     setSlides,
+    groupElements,
+    ungroupElement,
+    pushHistory,
   } = useCarouselStore();
 
   const brandKits = useState(() => guestStorage.getBrandKits())[0];
@@ -841,7 +905,9 @@ function PropertiesPanel() {
               ? "Image"
               : element.type === "shape"
                 ? "Forme"
-                : "Element"}
+                : element.type === "group"
+                  ? "Groupe"
+                  : "Element"}
         </h3>
         <div className="flex items-center gap-1">
           <Button
@@ -1346,6 +1412,56 @@ function PropertiesPanel() {
         </>
       )}
 
+      {/* Group controls */}
+      {element.type === "group" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Auto-layout groupe</Label>
+              <Switch checked={!!element.groupAutoLayout} onCheckedChange={(v) => updateElement(element.id, { groupAutoLayout: v })} />
+            </div>
+            {element.groupAutoLayout && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs">Direction</Label>
+                  <Select value={element.groupDirection || "vertical"} onValueChange={(v: any) => updateElement(element.id, { groupDirection: v })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="horizontal">Horizontal</SelectItem>
+                      <SelectItem value="vertical">Vertical</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Alignement</Label>
+                  <Select value={element.groupAlign || "flex-start"} onValueChange={(v: any) => updateElement(element.id, { groupAlign: v })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="flex-start">Debut</SelectItem>
+                      <SelectItem value="center">Centre</SelectItem>
+                      <SelectItem value="flex-end">Fin</SelectItem>
+                      <SelectItem value="stretch">Etirer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Gap ({element.groupGap ?? 8}px)</Label>
+                  <Slider value={[element.groupGap ?? 8]} onValueChange={([v]) => updateElement(element.id, { groupGap: v })} min={0} max={100} step={1} />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Padding ({element.groupPadding ?? 0}px)</Label>
+                  <Slider value={[element.groupPadding ?? 0]} onValueChange={([v]) => updateElement(element.id, { groupPadding: v })} min={0} max={100} step={1} />
+                </div>
+              </>
+            )}
+            <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => { pushHistory(); ungroupElement(element.id); }}>
+              <Ungroup className="w-3 h-3 mr-1" /> Degrouper
+            </Button>
+          </div>
+        </>
+      )}
+
       {/* Opacity — all elements */}
       <Separator />
       <div className="space-y-2">
@@ -1677,6 +1793,7 @@ export default function EditorPage() {
   const [, navigate] = useLocation();
   const id = params?.id || null;
   const containerRef = useRef<HTMLDivElement>(null);
+  const shiftHeldRef = useRef(false);
   const [canvasScale, setCanvasScale] = useState(0.5);
   const [showExport, setShowExport] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
@@ -1685,11 +1802,16 @@ export default function EditorPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [editorBrandKits] = useState(() => guestStorage.getBrandKits());
+  const [brandKitImagesOpen, setBrandKitImagesOpen] = useState(false);
+  const [activeBrandKitForImages, setActiveBrandKitForImages] = useState<string | null>(
+    () => guestStorage.getBrandKits()[0]?.id || null
+  );
 
   const {
     slides,
     activeSlideIndex,
     selectedElementId,
+    selectedElementIds,
     title,
     settings,
     isDirty,
@@ -1699,6 +1821,7 @@ export default function EditorPage() {
     setSettings,
     setActiveSlide,
     selectElement,
+    toggleSelectElement,
     addSlide,
     duplicateSlide,
     deleteSlide,
@@ -1715,6 +1838,8 @@ export default function EditorPage() {
     bringToFront,
     sendToBack,
     markSaved,
+    groupElements,
+    ungroupElement,
   } = useCarouselStore();
 
   // Load guest carousel from localStorage on mount
@@ -1790,6 +1915,18 @@ export default function EditorPage() {
     window.addEventListener("resize", updateScale);
     return () => window.removeEventListener("resize", updateScale);
   }, [settings.width, settings.height]);
+
+  // Track Shift key state
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Shift") shiftHeldRef.current = true; };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === "Shift") shiftHeldRef.current = false; };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
 
   // Keyboard shortcuts (Figma-style)
   useEffect(() => {
@@ -1875,6 +2012,30 @@ export default function EditorPage() {
         return;
       }
 
+      // Ctrl+G = group selected elements
+      if (ctrlOrCmd && e.key === "g" && !e.shiftKey) {
+        e.preventDefault();
+        const store = useCarouselStore.getState();
+        if (store.selectedElementIds.length >= 2) {
+          pushHistory();
+          groupElements(store.selectedElementIds);
+        }
+        return;
+      }
+
+      // Ctrl+Shift+G = ungroup selected group
+      if (ctrlOrCmd && e.key === "g" && e.shiftKey) {
+        e.preventDefault();
+        if (selectedElementId) {
+          const el = slides[activeSlideIndex]?.elements.find(elem => elem.id === selectedElementId);
+          if (el?.type === "group") {
+            pushHistory();
+            ungroupElement(selectedElementId);
+          }
+        }
+        return;
+      }
+
       // Delete/Backspace = delete selected element
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedElementId) {
@@ -1932,6 +2093,8 @@ export default function EditorPage() {
     sendBackward,
     bringToFront,
     sendToBack,
+    groupElements,
+    ungroupElement,
   ]);
 
   // Push history on slide count changes
@@ -2133,6 +2296,52 @@ export default function EditorPage() {
                   <span className="flex-1">{kit.name}</span>
                 </DropdownMenuItem>
               ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {/* Brand kit images */}
+        {editorBrandKits.some(k => (k.images?.length ?? 0) > 0) && (
+          <DropdownMenu open={brandKitImagesOpen} onOpenChange={setBrandKitImagesOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5" />
+                Images
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72 p-2">
+              {editorBrandKits.length > 1 && (
+                <div className="flex gap-1 mb-2 flex-wrap">
+                  {editorBrandKits.map(k => (
+                    <button
+                      key={k.id}
+                      className={`text-xs px-2 py-0.5 rounded border ${activeBrandKitForImages === k.id ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-accent'}`}
+                      onClick={() => setActiveBrandKitForImages(k.id)}
+                    >
+                      {k.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-4 gap-1.5">
+                {(activeBrandKitForImages ? guestStorage.getBrandKitImages(activeBrandKitForImages) : []).map((img: BrandKitImage) => (
+                  <button
+                    key={img.id}
+                    className="aspect-square rounded overflow-hidden border border-border hover:border-primary transition-colors"
+                    title={img.name}
+                    onClick={() => {
+                      pushHistory();
+                      addElement(createImageElement(img.dataUrl));
+                      setBrandKitImagesOpen(false);
+                    }}
+                  >
+                    <img src={img.dataUrl} alt={img.name} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+              {activeBrandKitForImages && guestStorage.getBrandKitImages(activeBrandKitForImages).length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-2">Aucune image dans cette charte</p>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -2433,6 +2642,17 @@ export default function EditorPage() {
               Forme
             </Button>
 
+            {selectedElementIds.length >= 2 && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { pushHistory(); groupElements(selectedElementIds); }}>
+                <Group className="w-3.5 h-3.5 mr-1" /> Grouper
+              </Button>
+            )}
+            {selectedElementId && slides[activeSlideIndex]?.elements.find(el => el.id === selectedElementId)?.type === "group" && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { pushHistory(); ungroupElement(selectedElementId); }}>
+                <Ungroup className="w-3.5 h-3.5 mr-1" /> Degrouper
+              </Button>
+            )}
+
             <div className="flex-1" />
 
             {/* Slide navigation */}
@@ -2480,7 +2700,13 @@ export default function EditorPage() {
                 slideHeight={settings.height}
                 isActive
                 selectedElementId={selectedElementId}
-                onSelectElement={selectElement}
+                onSelectElement={(id) => {
+                  if (shiftHeldRef.current && id) {
+                    toggleSelectElement(id);
+                  } else {
+                    selectElement(id);
+                  }
+                }}
                 onUpdateElement={(elId, updates) =>
                   updateElement(elId, updates)
                 }

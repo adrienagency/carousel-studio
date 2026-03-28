@@ -1,6 +1,6 @@
 export interface SlideElement {
   id: string;
-  type: "text" | "image" | "shape" | "icon" | "divider";
+  type: "text" | "image" | "shape" | "icon" | "divider" | "group";
   x: number;
   y: number;
   width: number;
@@ -13,6 +13,13 @@ export interface SlideElement {
   zIndex: number;
   style: ElementStyle;
   layout?: ElementLayout;
+  // Group-specific
+  children?: SlideElement[];
+  groupAutoLayout?: boolean;
+  groupDirection?: "vertical" | "horizontal";
+  groupGap?: number;
+  groupPadding?: number;
+  groupAlign?: "flex-start" | "center" | "flex-end" | "stretch";
 }
 
 export interface GradientStop {
@@ -104,6 +111,13 @@ export interface GuestTemplate {
   createdAt: string;
 }
 
+export interface BrandKitImage {
+  id: string;
+  name: string;
+  dataUrl: string; // base64 data URI
+  addedAt: string;
+}
+
 export interface GuestBrandKit {
   id: string;
   name: string;
@@ -113,6 +127,7 @@ export interface GuestBrandKit {
   backgroundColor: string;
   headingFont: string;
   bodyFont: string;
+  images?: BrandKitImage[];
 }
 
 export function createDefaultSlide(order: number, type: SlideType = "blank"): Slide {

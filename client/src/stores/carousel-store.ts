@@ -20,6 +20,7 @@ interface CarouselState {
   brandKitId: number | null;
   activeSlideIndex: number;
   selectedElementId: string | null;
+  selectedElementIds: string[]; // multi-select
   isDirty: boolean;
   isSaving: boolean;
   lastSavedAt: string | null;
@@ -43,11 +44,16 @@ interface CarouselState {
 
   // Actions — elements
   selectElement: (elementId: string | null) => void;
+  toggleSelectElement: (elementId: string) => void; // Shift+click multi-select
   addElement: (element: SlideElement) => void;
   updateElement: (elementId: string, updates: Partial<SlideElement>) => void;
   updateElementStyle: (elementId: string, style: Partial<SlideElement["style"]>) => void;
   deleteElement: (elementId: string) => void;
   reorderElements: (fromIndex: number, toIndex: number) => void;
+
+  // Actions — groups
+  groupElements: (elementIds: string[]) => void;
+  ungroupElement: (groupId: string) => void;
 
   // Actions — layers
   bringForward: (elementId: string) => void;
@@ -78,6 +84,7 @@ export const useCarouselStore = create<CarouselState>((set, get) => ({
   brandKitId: null,
   activeSlideIndex: 0,
   selectedElementId: null,
+  selectedElementIds: [],
   isDirty: false,
   isSaving: false,
   lastSavedAt: null,
@@ -147,7 +154,18 @@ export const useCarouselStore = create<CarouselState>((set, get) => ({
     }),
 
   setSlides: (slides) => set({ slides, activeSlideIndex: 0, selectedElementId: null, isDirty: true }),
-  selectElement: (elementId) => set({ selectedElementId: elementId }),
+  selectElement: (elementId) => set({ selectedElementId: elementId, selectedElementIds: elementId ? [elementId] : [] }),
+
+  toggleSelectElement: (elementId) =>
+    set((s) => {
+      const ids = s.selectedElementIds.includes(elementId)
+        ? s.selectedElementIds.filter((id) => id !== elementId)
+        : [...s.selectedElementIds, elementId];
+      return {
+        selectedElementIds: ids,
+        selectedElementId: ids.length === 1 ? ids[0] : (ids.length > 1 ? ids[ids.length - 1] : null),
+      };
+    }),
 
   addElement: (element) =>
     set((s) => {
@@ -199,6 +217,74 @@ export const useCarouselStore = create<CarouselState>((set, get) => ({
       slide.elements = reindexZIndex(elements);
       slides[s.activeSlideIndex] = slide;
       return { slides, isDirty: true };
+    }),
+
+  // ─── Group actions ──────────────────────────────────
+  groupElements: (elementIds) =>
+    set((s) => {
+      if (elementIds.length < 2) return s;
+      const slides = [...s.slides];
+      const slide = { ...slides[s.activeSlideIndex] };
+      const toGroup = slide.elements.filter((el) => elementIds.includes(el.id));
+      if (toGroup.length < 2) return s;
+
+      const minX = Math.min(...toGroup.map((el) => el.x));
+      const minY = Math.min(...toGroup.map((el) => el.y));
+      const maxX = Math.max(...toGroup.map((el) => el.x + el.width));
+      const maxY = Math.max(...toGroup.map((el) => el.y + el.height));
+      const maxZ = Math.max(...toGroup.map((el) => el.zIndex ?? 0));
+
+      const children: SlideElement[] = toGroup.map((el) => ({
+        ...el,
+        x: el.x - minX,
+        y: el.y - minY,
+      }));
+
+      const group: SlideElement = {
+        id: crypto.randomUUID(),
+        type: "group",
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+        rotation: 0,
+        locked: false,
+        visible: true,
+        zIndex: maxZ + 1,
+        style: {},
+        children,
+        groupAutoLayout: false,
+      };
+
+      slide.elements = [
+        ...slide.elements.filter((el) => !elementIds.includes(el.id)),
+        group,
+      ];
+      slide.elements = reindexZIndex(slide.elements);
+      slides[s.activeSlideIndex] = slide;
+      return { slides, selectedElementId: group.id, selectedElementIds: [group.id], isDirty: true };
+    }),
+
+  ungroupElement: (groupId) =>
+    set((s) => {
+      const slides = [...s.slides];
+      const slide = { ...slides[s.activeSlideIndex] };
+      const group = slide.elements.find((el) => el.id === groupId);
+      if (!group || group.type !== "group" || !group.children) return s;
+
+      const restored: SlideElement[] = group.children.map((child) => ({
+        ...child,
+        x: child.x + group.x,
+        y: child.y + group.y,
+      }));
+
+      slide.elements = [
+        ...slide.elements.filter((el) => el.id !== groupId),
+        ...restored,
+      ];
+      slide.elements = reindexZIndex(slide.elements);
+      slides[s.activeSlideIndex] = slide;
+      return { slides, selectedElementId: null, selectedElementIds: restored.map((el) => el.id), isDirty: true };
     }),
 
   // ─── Layer actions ──────────────────────────────────
@@ -295,7 +381,7 @@ export const useCarouselStore = create<CarouselState>((set, get) => ({
     set({
       carouselId: null, title: "Sans titre", slides: [createDefaultSlide(0, "cover")],
       settings: DEFAULT_SETTINGS, brandKitId: null, activeSlideIndex: 0,
-      selectedElementId: null, isDirty: false, isSaving: false, lastSavedAt: null,
+      selectedElementId: null, selectedElementIds: [], isDirty: false, isSaving: false, lastSavedAt: null,
       history: [], historyIndex: -1,
     }),
 }));

@@ -32,6 +32,7 @@ function BrandKitCard({ kit, onSave, onDelete, onImagesChange }: { kit: GuestBra
   const [images, setImages] = useState<BrandKitImage[]>(() => guestStorage.getBrandKitImages(kit.id));
 
   const save = () => onSave(kit.id, { name, primaryColor, secondaryColor, accentColor, backgroundColor, headingFont, bodyFont });
+    const updateAndSave = (setter: (v: string) => void, field: string) => (v: string) => { setter(v); onSave(kit.id, { [field]: v }); };
 
   const handleImageUpload = () => {
     const input = document.createElement("input");

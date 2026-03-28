@@ -84,10 +84,13 @@ export function generateSlidesFallback(text: string, options: GeneratorOptions):
   const bodySize = Math.round(32 * scale);
   const ctaSize = Math.round(48 * scale);
 
-  // Brand color palette for alternating slide backgrounds
-  const secondary = options.secondaryColor || "#6366F1";
-  const accent = options.accentColor || "#F59E0B";
-  const bgPalette = [bg, color, bg, secondary, bg, accent, bg, color, color];
+  // Brand color palette — ONLY use provided brand colors, else neutral B&W
+  const hasBrand = !!options.primaryColor;
+  const secondary = options.secondaryColor || color;
+  const accent = options.accentColor || color;
+  const bgPalette = hasBrand
+    ? [bg, color, bg, secondary, bg, accent, bg, color, color]
+    : ["#FFFFFF", "#1A1A2E", "#FFFFFF", "#1A1A2E", "#FFFFFF", "#1A1A2E", "#FFFFFF", "#1A1A2E", "#1A1A2E"];
 
   const paragraphs = splitIntoParagraphs(text);
   const sentences = splitIntoSentences(text);

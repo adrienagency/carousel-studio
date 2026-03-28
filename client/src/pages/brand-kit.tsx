@@ -76,10 +76,10 @@ function BrandKitCard({ kit, onSave, onDelete, onImagesChange }: { kit: GuestBra
         <div>
           <p className="text-xs font-medium text-muted-foreground mb-3">Couleurs</p>
           <div className="grid grid-cols-2 gap-3">
-            <ColorPicker label="Principale" value={primaryColor} onChange={setPrimaryColor} />
-            <ColorPicker label="Secondaire" value={secondaryColor} onChange={setSecondaryColor} />
-            <ColorPicker label="Accent" value={accentColor} onChange={setAccentColor} />
-            <ColorPicker label="Fond" value={backgroundColor} onChange={setBackgroundColor} />
+            <ColorPicker label="Principale" value={primaryColor} onChange={updateAndSave(setPrimaryColor, "primaryColor")} />
+            <ColorPicker label="Secondaire" value={secondaryColor} onChange={updateAndSave(setSecondaryColor, "secondaryColor")} />
+            <ColorPicker label="Accent" value={accentColor} onChange={updateAndSave(setAccentColor, "accentColor")} />
+            <ColorPicker label="Fond" value={backgroundColor} onChange={updateAndSave(setBackgroundColor, "backgroundColor")} />
           </div>
         </div>
         <div className="flex gap-1.5 h-6 rounded-md overflow-hidden">

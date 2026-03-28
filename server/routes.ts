@@ -214,7 +214,7 @@ export async function registerRoutes(
   // ─── LLM Generate Slides (with model choice + brand kit colors) ──
   app.post("/api/generate-slides", async (req, res) => {
     try {
-      const { text, brandKit, platform, model, width, height, decoImages, infoImages, author, topline } = req.body;
+      const { text, brandKit, platform, model, width, height, decoImages, infoImages, author, topline, refImages } = req.body;
       if (!text) return res.status(400).json({ error: "Text required" });
 
       const { default: Anthropic } = await import("@anthropic-ai/sdk");
@@ -229,18 +229,18 @@ export async function registerRoutes(
         ? `\nSi des images informatives sont fournies, certaines slides "content" doivent inclure "hasImage": true.\nLe texte de ces slides doit être plus court (max 15 mots pour le body) pour laisser de la place à l'image.`
         : "";
 
-      const systemPrompt = `Tu es un expert en creation de carrousels pour reseaux sociaux (LinkedIn, Instagram).
-Analyse le texte fourni et cree un carrousel percutant.
+      const systemPrompt = `Tu es un directeur artistique expert en creation de carrousels pour reseaux sociaux (LinkedIn, Instagram).
+Tu dois ANALYSER EN PROFONDEUR le texte fourni, en extraire les idees les plus percutantes, et les REFORMULER dans un style direct et impactant.
 
-Regles :
-- Slide 1 (cover) : Titre accrocheur de max 8 mots + sous-titre de max 15 mots
-- Slides intermediaires (content) : 1 idee forte par slide. Titre de max 6 mots + description de max 30 mots. Selectionne les points les plus interessants.
+REGLES STRICTES :
+- NE COPIE JAMAIS le texte mot pour mot. REFORMULE chaque point.
+- Slide 1 (cover) : Titre accrocheur de max 8 mots + sous-titre de max 15 mots. Le titre doit donner envie de swiper.
+- Slides intermediaires (content) : 1 idee forte par slide. Titre percutant de max 6 mots + description de max 30 mots. SELECTIONNE les points les plus interessants du texte, pas les premiers.
 - Derniere slide (end) : Call-to-action engageant + mention @handle
 - Nombre total de slides : entre 5 et 10 selon la richesse du contenu
 - Chaque slide doit pouvoir se lire independamment
-- Utilise un langage direct et impactant
-- ANALYSE EN PROFONDEUR le texte, ne te contente pas de copier les premieres phrases
-- Reformule, synthetise, rend le contenu plus percutant${infoImagesInstruction}
+- Style : direct, concret, pas de jargon. Comme si tu parlais a un ami.
+- PARCOURS LE TEXTE EN ENTIER avant de commencer. Ne t'arrete pas aux premieres lignes.${infoImagesInstruction}
 
 Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Format :
 [
@@ -267,19 +267,54 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
   }
 ]`;
 
-      const chosenModel = model || "claude_sonnet_4_6";
+      // Handle thinking mode: strip "_thinking" suffix
+      const isThinking = model?.endsWith("_thinking");
+      const chosenModel = isThinking ? model.replace("_thinking", "") : (model || "claude_sonnet_4_6");
+
+      // Build user message content — may include reference images (vision)
+      const hasRefImages = Array.isArray(refImages) && refImages.length > 0;
+      let userContent: any;
+
+      if (hasRefImages) {
+        // Multimodal: send reference images + text
+        const contentParts: any[] = [];
+        contentParts.push({ type: "text", text: "Voici des references visuelles de carousels dont tu dois t'inspirer pour le style, la mise en page et le ton :" });
+        for (const img of refImages.slice(0, 4)) { // Max 4 reference images
+          if (img.dataUrl) {
+            const base64Match = img.dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+            if (base64Match) {
+              contentParts.push({
+                type: "image",
+                source: { type: "base64", media_type: base64Match[1], data: base64Match[2] },
+              });
+            }
+          }
+        }
+        contentParts.push({ type: "text", text: `\n\nMaintenant, cree un carrousel a partir de ce texte. Analyse EN PROFONDEUR et reformule de maniere percutante. Inspire-toi du style visuel des references ci-dessus. Ne copie JAMAIS le texte mot pour mot :\n\n${text}` });
+        userContent = contentParts;
+      } else {
+        userContent = `Cree un carrousel a partir de ce texte. Analyse EN PROFONDEUR et reformule de maniere percutante. Ne copie JAMAIS le texte mot pour mot :\n\n${text}`;
+      }
       
-      const message = await client.messages.create({
+      const messageParams: any = {
         model: chosenModel,
-        max_tokens: 4000,
+        max_tokens: isThinking ? 16000 : 8000,
         messages: [
-          { role: "user", content: `Cree un carrousel a partir de ce texte. Analyse en profondeur et reformule de maniere percutante :\n\n${text}` },
+          { role: "user", content: userContent },
         ],
         system: systemPrompt,
-      });
+      };
 
-      const content = message.content[0];
-      const responseText = content.type === "text" ? content.text : "";
+      // Enable extended thinking for Opus Thinking mode
+      if (isThinking) {
+        messageParams.thinking = { type: "enabled", budget_tokens: 8000 };
+      }
+
+      const message = await client.messages.create(messageParams);
+
+      // Extract text from response (skip thinking blocks if present)
+      const textBlock = message.content.find((c: any) => c.type === "text");
+      const responseText = textBlock?.type === "text" ? textBlock.text : "";
       
       const jsonMatch = responseText.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
@@ -288,27 +323,45 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
 
       const rawSlides = JSON.parse(jsonMatch[0]);
       
-      // Brand kit colors with contrast-safe text colors
-      const colors = {
-        primary: brandKit?.primaryColor || "#1A1A2E",
-        secondary: brandKit?.secondaryColor || "#6366F1",
-        accent: brandKit?.accentColor || "#F59E0B",
-        bg: brandKit?.backgroundColor || "#FFFFFF",
-        headingFont: brandKit?.headingFont || "Inter",
-        bodyFont: brandKit?.bodyFont || "Inter",
+      // Brand kit colors — ONLY use brand kit colors if provided, else neutral B&W
+      const hasBrandKit = brandKit && brandKit.primaryColor;
+      const colors = hasBrandKit ? {
+        primary: brandKit.primaryColor,
+        secondary: brandKit.secondaryColor,
+        accent: brandKit.accentColor,
+        bg: brandKit.backgroundColor,
+        headingFont: brandKit.headingFont || "Inter",
+        bodyFont: brandKit.bodyFont || "Inter",
+      } : {
+        primary: "#1A1A2E",
+        secondary: "#1A1A2E",
+        accent: "#1A1A2E",
+        bg: "#FFFFFF",
+        headingFont: "Inter",
+        bodyFont: "Inter",
       };
 
-      // Color palette for slides — alternate between brand colors
-      const bgPalette = [
-        colors.bg,           // cover: light bg
-        colors.primary,      // content 1: dark bg
-        colors.bg,           // content 2: light bg  
-        colors.secondary,    // content 3: colored bg
-        colors.bg,           // content 4: light bg
-        colors.accent,       // content 5: accent bg
-        colors.bg,           // content 6: light bg
-        colors.primary,      // content 7: dark bg
-        colors.primary,      // end: dark bg
+      // Color palette for slides — alternate ONLY between brand kit colors
+      const bgPalette = hasBrandKit ? [
+        colors.bg,           // cover: brand bg
+        colors.primary,      // content 1: brand primary
+        colors.bg,           // content 2: brand bg
+        colors.secondary,    // content 3: brand secondary
+        colors.bg,           // content 4: brand bg
+        colors.accent,       // content 5: brand accent
+        colors.bg,           // content 6: brand bg
+        colors.primary,      // content 7: brand primary
+        colors.primary,      // end: brand primary
+      ] : [
+        "#FFFFFF",           // cover: white
+        "#1A1A2E",          // content 1: dark
+        "#FFFFFF",           // content 2: white
+        "#1A1A2E",          // content 3: dark
+        "#FFFFFF",           // content 4: white
+        "#1A1A2E",          // content 5: dark
+        "#FFFFFF",           // content 6: white
+        "#1A1A2E",          // content 7: dark
+        "#1A1A2E",          // end: dark
       ];
 
       // Determine text color based on background luminance for contrast

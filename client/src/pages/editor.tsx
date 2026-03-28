@@ -9,6 +9,7 @@ import {
   createTextElement,
   createImageElement,
   GuestTemplate,
+  GuestBrandKit,
 } from "@/types/carousel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +76,8 @@ import {
   RectangleHorizontal,
   BookTemplate,
   Upload,
+  Languages,
+  Palette,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -285,8 +288,10 @@ function SlideRenderer({
         const positionStyle: React.CSSProperties = isAutoLayout
           ? {
               position: "relative" as const,
-              width: element.width * scale,
-              height: element.height * scale,
+              width: element.type === "image" ? "100%" : element.width * scale,
+              height: element.type === "image" ? "auto" : element.height * scale,
+              minHeight: element.type === "image" ? element.height * scale * 0.3 : undefined,
+              flexShrink: 0,
               zIndex: element.zIndex ?? 0,
             }
           : {
@@ -559,6 +564,7 @@ function PropertiesPanel() {
         <div className="space-y-2">
           <Label className="text-xs">Type</Label>
           <Select
+            key={`type-${slide.id}`}
             value={slide.type}
             onValueChange={(v: any) =>
               updateSlide(activeSlideIndex, { type: v })
@@ -1190,7 +1196,7 @@ function ExportDialog({
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 300000);
 
-      const res = await fetch("/api/export", {
+      const res = await fetch("./api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1435,6 +1441,8 @@ export default function EditorPage() {
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [editorBrandKits] = useState(() => guestStorage.getBrandKits());
 
   const {
     slides,
@@ -1713,6 +1721,79 @@ export default function EditorPage() {
     }
   };
 
+  // Translate all slides to English
+  const handleTranslate = async () => {
+    setIsTranslating(true);
+    try {
+      const res = await fetch("./api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slides, targetLang: "American English" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.slides) {
+          pushHistory();
+          setSlides(data.slides);
+        }
+      }
+    } catch (err) {
+      console.error("Translation failed:", err);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  // Apply brand kit colors to all slides
+  const handleApplyBrandKit = (kitId: string) => {
+    const kit = guestStorage.getBrandKit(kitId);
+    if (!kit) return;
+    pushHistory();
+    const bgPalette = [
+      kit.backgroundColor || "#FFFFFF",
+      kit.primaryColor || "#1A1A2E",
+      kit.backgroundColor || "#FFFFFF",
+      kit.secondaryColor || "#6366F1",
+      kit.backgroundColor || "#FFFFFF",
+      kit.accentColor || "#F59E0B",
+      kit.backgroundColor || "#FFFFFF",
+      kit.primaryColor || "#1A1A2E",
+      kit.primaryColor || "#1A1A2E",
+    ];
+    function getContrast(bgHex: string): string {
+      const hex = bgHex.replace("#", "");
+      const r = parseInt(hex.substr(0, 2), 16) || 0;
+      const g = parseInt(hex.substr(2, 2), 16) || 0;
+      const b = parseInt(hex.substr(4, 2), 16) || 0;
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return lum > 0.5 ? "#1A1A2E" : "#FFFFFF";
+    }
+    const newSlides = slides.map((slide, i) => {
+      const bg = bgPalette[i % bgPalette.length];
+      const txtColor = getContrast(bg);
+      return {
+        ...slide,
+        backgroundColor: bg,
+        elements: slide.elements.map((el) => {
+          if (el.type === "text") {
+            return {
+              ...el,
+              style: {
+                ...el.style,
+                color: txtColor,
+                fontFamily: el.style.fontWeight && el.style.fontWeight >= 700
+                  ? kit.headingFont || el.style.fontFamily
+                  : kit.bodyFont || el.style.fontFamily,
+              },
+            };
+          }
+          return el;
+        }),
+      };
+    });
+    setSlides(newSlides);
+  };
+
   const activeSlide = slides[activeSlideIndex];
   const thumbnailScale = Math.min(
     140 / settings.width,
@@ -1784,6 +1865,52 @@ export default function EditorPage() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Brand kit apply */}
+        {editorBrandKits.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                data-testid="button-brand-kit"
+              >
+                <Palette className="w-3.5 h-3.5" />
+                Charte
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {editorBrandKits.map((kit) => (
+                <DropdownMenuItem
+                  key={kit.id}
+                  onClick={() => handleApplyBrandKit(kit.id)}
+                  data-testid={`brandkit-${kit.id}`}
+                >
+                  <span className="w-3 h-3 rounded-full mr-2 shrink-0" style={{ backgroundColor: kit.primaryColor }} />
+                  <span className="flex-1">{kit.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {/* Translate */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs gap-1.5"
+          onClick={handleTranslate}
+          disabled={isTranslating}
+          data-testid="button-translate"
+        >
+          {isTranslating ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Languages className="w-3.5 h-3.5" />
+          )}
+          {isTranslating ? "Traduction..." : "EN-US"}
+        </Button>
 
         <div className="flex-1" />
 
@@ -1938,7 +2065,7 @@ export default function EditorPage() {
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        const res = await fetch("/api/export", {
+                        const res = await fetch("./api/export", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({

@@ -51,7 +51,7 @@ export interface Slide {
   backgroundImage?: string;
   autoLayout?: boolean;
   layoutDirection?: "vertical" | "horizontal";
-  layoutAlign?: "start" | "center" | "end";
+  layoutAlign?: "flex-start" | "center" | "flex-end" | "stretch";
   layoutGap?: number;
   layoutPadding?: number;
   elements: SlideElement[];

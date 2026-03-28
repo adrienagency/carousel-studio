@@ -4,12 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FORMAT_PRESETS } from "@/lib/format-presets";
-import { generateSlidesFallback, generateFromTemplate } from "@/lib/slide-generator";
+import { generateSlidesFallback, generateFromTemplate, type GeneratorOptions } from "@/lib/slide-generator";
 import { guestStorage } from "@/lib/guest-storage";
-import type { Slide, GuestTemplate } from "@/types/carousel";
-import { Sparkles, Loader2, Monitor, Smartphone, Layout, BookTemplate, FileText } from "lucide-react";
+import type { Slide, GuestTemplate, GuestBrandKit } from "@/types/carousel";
+import { Sparkles, Loader2, BookTemplate, FileText, Palette, Cpu } from "lucide-react";
+
+const LLM_MODELS = [
+  { id: "local", name: "Local (sans LLM)", description: "Parsing intelligent cote client" },
+  { id: "claude_haiku_4_5", name: "Claude Haiku", description: "Rapide, economique" },
+  { id: "claude_sonnet_4_6", name: "Claude Sonnet", description: "Equilibre qualite/vitesse" },
+  { id: "gpt_5_1", name: "GPT-5.1", description: "OpenAI, performant" },
+  { id: "gemini_3_flash", name: "Gemini Flash", description: "Google, rapide" },
+];
 
 interface NewCarouselModalProps {
   open: boolean;
@@ -29,191 +37,232 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
   const [isCustom, setIsCustom] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [selectedBrandKit, setSelectedBrandKit] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState("local");
 
   const templates = useMemo(() => guestStorage.getTemplates(), [open]);
+  const brandKits = useMemo(() => guestStorage.getBrandKits(), [open]);
 
-  const getWidth = () => {
-    if (isCustom) return customW;
-    return FORMAT_PRESETS.find((f) => f.id === selectedFormat)?.width || 1080;
-  };
-  const getHeight = () => {
-    if (isCustom) return customH;
-    return FORMAT_PRESETS.find((f) => f.id === selectedFormat)?.height || 1080;
-  };
-  const getPlatform = () => {
-    if (isCustom) return "custom";
-    return FORMAT_PRESETS.find((f) => f.id === selectedFormat)?.platform || "linkedin";
+  const getWidth = () => isCustom ? customW : FORMAT_PRESETS.find((f) => f.id === selectedFormat)?.width || 1080;
+  const getHeight = () => isCustom ? customH : FORMAT_PRESETS.find((f) => f.id === selectedFormat)?.height || 1080;
+  const getPlatform = () => isCustom ? "custom" : FORMAT_PRESETS.find((f) => f.id === selectedFormat)?.platform || "linkedin";
+
+  const getBrandKit = (): GuestBrandKit | null => {
+    if (!selectedBrandKit) return null;
+    return brandKits.find(k => k.id === selectedBrandKit) || null;
   };
 
   const handleGenerate = async () => {
     if (!text.trim()) return;
     setIsGenerating(true);
-    await new Promise((r) => setTimeout(r, 400));
 
     const w = getWidth();
     const h = getHeight();
+    const kit = getBrandKit();
     let slides: Slide[];
 
-    // If a template is selected, generate from template
-    if (selectedTemplate) {
-      const tpl = templates.find((t) => t.id === selectedTemplate);
-      if (tpl) {
-        try {
+    try {
+      // Template-based generation
+      if (selectedTemplate) {
+        const tpl = templates.find((t) => t.id === selectedTemplate);
+        if (tpl) {
           const templateSlides: Slide[] = JSON.parse(tpl.slides);
           slides = generateFromTemplate(text, templateSlides);
-          // Use template settings if available
-          try {
-            const tplSettings = JSON.parse(tpl.settings);
-            if (tplSettings.width && tplSettings.height) {
+          const tplSettings = JSON.parse(tpl.settings || "{}");
+          setIsGenerating(false);
+          setText("");
+          setSelectedTemplate(null);
+          onCreate({
+            title: slides[0]?.elements.find((e) => e.type === "text")?.content || tpl.name,
+            slides,
+            settings: { width: tplSettings.width || w, height: tplSettings.height || h, platform: tplSettings.platform || getPlatform() },
+          });
+          return;
+        }
+      }
+
+      // LLM-based generation
+      if (selectedModel !== "local") {
+        try {
+          const res = await fetch("./api/generate-slides", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text,
+              brandKit: kit,
+              platform: getPlatform(),
+              model: selectedModel,
+              width: w,
+              height: h,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.slides) {
+              slides = data.slides;
+              const firstText = slides[0]?.elements.find((e: any) => e.type === "text");
               setIsGenerating(false);
               setText("");
-              setSelectedTemplate(null);
-              onCreate({
-                title: slides[0]?.elements.find((e) => e.type === "text")?.content || tpl.name,
-                slides,
-                settings: { width: tplSettings.width, height: tplSettings.height, platform: tplSettings.platform || getPlatform() },
-              });
+              onCreate({ title: firstText?.content || "Sans titre", slides, settings: { width: w, height: h, platform: getPlatform() } });
               return;
             }
-          } catch {}
-        } catch {
-          // Fallback to normal generation if template parsing fails
-          slides = generateSlidesFallback(text, { width: w, height: h });
+          }
+        } catch (e) {
+          console.warn("LLM generation failed, falling back to local:", e);
         }
-      } else {
-        slides = generateSlidesFallback(text, { width: w, height: h });
       }
-    } else {
+
+      // Local fallback generation
+      await new Promise((r) => setTimeout(r, 300));
+      const genOptions: GeneratorOptions = { width: w, height: h };
+      if (kit) {
+        genOptions.primaryColor = kit.primaryColor;
+        genOptions.secondaryColor = kit.secondaryColor;
+        genOptions.accentColor = kit.accentColor;
+        genOptions.backgroundColor = kit.backgroundColor;
+        genOptions.headingFont = kit.headingFont;
+        genOptions.bodyFont = kit.bodyFont;
+      }
+      slides = generateSlidesFallback(text, genOptions);
+    } catch {
       slides = generateSlidesFallback(text, { width: w, height: h });
     }
 
-    const firstTextEl = slides[0]?.elements.find((e) => e.type === "text");
-    const title = firstTextEl?.content || "Sans titre";
-
+    const firstText = slides[0]?.elements.find((e) => e.type === "text");
     setIsGenerating(false);
     setText("");
-    setSelectedTemplate(null);
-
-    onCreate({ title, slides, settings: { width: w, height: h, platform: getPlatform() } });
+    onCreate({ title: firstText?.content || "Sans titre", slides, settings: { width: w, height: h, platform: getPlatform() } });
   };
 
   const handleCreateBlank = () => {
     onCreate({
       title: "Sans titre",
-      slides: [{
-        id: crypto.randomUUID(), order: 0, type: "cover" as const,
-        backgroundColor: "#FFFFFF", elements: [],
-      }],
+      slides: [{ id: crypto.randomUUID(), order: 0, type: "cover" as const, backgroundColor: "#FFFFFF", elements: [] }],
       settings: { width: getWidth(), height: getHeight(), platform: getPlatform() },
     });
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-[680px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nouveau carrousel</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 mt-2">
+        <div className="space-y-4 mt-2">
           {/* FORMAT */}
           <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3 block">Format</Label>
-            <div className="grid grid-cols-4 gap-2">
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">Format</Label>
+            <div className="grid grid-cols-4 gap-1.5">
               {FORMAT_PRESETS.map((preset) => {
                 const isActive = !isCustom && selectedFormat === preset.id;
-                const maxPrev = 36;
+                const maxPrev = 32;
                 const ratio = preset.width / preset.height;
                 const prevW = ratio >= 1 ? maxPrev : Math.round(maxPrev * ratio);
                 const prevH = ratio >= 1 ? Math.round(maxPrev / ratio) : maxPrev;
                 return (
-                  <button
-                    key={preset.id}
-                    type="button"
+                  <button key={preset.id} type="button"
                     onClick={() => { setSelectedFormat(preset.id); setIsCustom(false); }}
-                    className={`flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all text-center ${
-                      isActive ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30"
-                    }`}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-center ${isActive ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30"}`}
                     data-testid={`format-${preset.id}`}
                   >
                     <div className={`rounded-sm ${isActive ? "bg-primary/20" : "bg-muted"}`} style={{ width: prevW, height: prevH }} />
                     <span className="text-[10px] font-medium leading-tight">{preset.name}</span>
-                    <span className="text-[9px] text-muted-foreground">{preset.width}x{preset.height}</span>
                   </button>
                 );
               })}
-              <button
-                type="button"
-                onClick={() => setIsCustom(true)}
-                className={`flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all text-center ${
-                  isCustom ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30"
-                }`}
+              <button type="button" onClick={() => setIsCustom(true)}
+                className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all ${isCustom ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/30"}`}
               >
-                <div className={`w-[36px] h-[28px] rounded-sm border-2 border-dashed ${isCustom ? "border-primary/40" : "border-muted-foreground/20"}`} />
+                <div className={`w-8 h-6 rounded-sm border-2 border-dashed ${isCustom ? "border-primary/40" : "border-muted-foreground/20"}`} />
                 <span className="text-[10px] font-medium">Custom</span>
               </button>
             </div>
             {isCustom && (
-              <div className="flex items-center gap-2 mt-3">
-                <Input type="number" value={customW} onChange={(e) => setCustomW(Number(e.target.value) || 1080)} className="h-8 text-xs w-24" min={200} max={4000} />
+              <div className="flex items-center gap-2 mt-2">
+                <Input type="number" value={customW} onChange={(e) => setCustomW(Number(e.target.value) || 1080)} className="h-7 text-xs w-20" />
                 <span className="text-xs text-muted-foreground">x</span>
-                <Input type="number" value={customH} onChange={(e) => setCustomH(Number(e.target.value) || 1080)} className="h-8 text-xs w-24" min={200} max={4000} />
-                <span className="text-xs text-muted-foreground">px</span>
+                <Input type="number" value={customH} onChange={(e) => setCustomH(Number(e.target.value) || 1080)} className="h-7 text-xs w-20" />
               </div>
             )}
           </div>
 
-          {/* TEMPLATE SELECTOR (if templates exist) */}
+          {/* BRAND KIT + MODEL — side by side */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Brand Kit */}
+            <div>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Palette className="w-3 h-3" /> Charte graphique
+              </Label>
+              <Select value={selectedBrandKit || "none"} onValueChange={(v) => setSelectedBrandKit(v === "none" ? null : v)}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Aucune charte" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Aucune (defaut)</SelectItem>
+                  {brandKits.map((kit) => (
+                    <SelectItem key={kit.id} value={kit.id}>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: kit.primaryColor }} />
+                        {kit.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* LLM Model */}
+            <div>
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Cpu className="w-3 h-3" /> Modele IA
+              </Label>
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LLM_MODELS.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      <span className="flex flex-col">
+                        <span className="text-xs">{m.name}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* TEMPLATE */}
           {templates.length > 0 && (
             <div>
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
-                Template (optionnel)
-              </Label>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                <button
-                  type="button"
-                  onClick={() => setSelectedTemplate(null)}
-                  className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-xs ${
-                    !selectedTemplate ? "border-primary bg-primary/5 font-medium" : "border-border hover:border-muted-foreground/30"
-                  }`}
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">Template</Label>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                <button type="button" onClick={() => setSelectedTemplate(null)}
+                  className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border-2 text-xs ${!selectedTemplate ? "border-primary bg-primary/5 font-medium" : "border-border"}`}
                 >
-                  <FileText className="w-3.5 h-3.5" />
-                  Aucun
+                  <FileText className="w-3 h-3" /> Aucun
                 </button>
                 {templates.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => setSelectedTemplate(tpl.id)}
-                    className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-xs ${
-                      selectedTemplate === tpl.id ? "border-primary bg-primary/5 font-medium" : "border-border hover:border-muted-foreground/30"
-                    }`}
+                  <button key={tpl.id} type="button" onClick={() => setSelectedTemplate(tpl.id)}
+                    className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border-2 text-xs ${selectedTemplate === tpl.id ? "border-primary bg-primary/5 font-medium" : "border-border"}`}
                   >
-                    <BookTemplate className="w-3.5 h-3.5" />
-                    {tpl.name}
+                    <BookTemplate className="w-3 h-3" /> {tpl.name}
                   </button>
                 ))}
               </div>
-              {selectedTemplate && (
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  Le texte sera adapte a la structure du template selectionne.
-                </p>
-              )}
             </div>
           )}
 
           {/* TEXT */}
           <div>
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
-              Contenu {selectedTemplate ? "(requis)" : "(optionnel)"}
-            </Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">Contenu</Label>
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={selectedTemplate
-                ? "Collez votre texte ici. Le contenu sera adapte a la structure du template selectionne..."
-                : "Collez votre texte ici pour generer automatiquement les slides...\n\nExemple :\n5 strategies pour augmenter votre visibilite\n\n1. Publiez regulierement\nLa constance est la cle.\n\n2. Utilisez les carrousels\n3x plus d'engagement."}
-              className="min-h-[160px] text-sm"
+              placeholder={"Collez votre texte ici...\n\nExemple :\n5 strategies pour augmenter votre visibilite\n\n1. Publiez regulierement\n2. Utilisez les carrousels\n3. Engagez avec votre communaute"}
+              className="min-h-[140px] text-sm"
               data-testid="input-carousel-text"
             />
           </div>
@@ -223,16 +272,11 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
             <Button variant="outline" className="flex-1" onClick={handleCreateBlank} data-testid="button-create-blank">
               Carrousel vide
             </Button>
-            <Button
-              className="flex-1"
-              onClick={handleGenerate}
-              disabled={!text.trim() || isGenerating}
-              data-testid="button-generate-carousel"
-            >
+            <Button className="flex-1" onClick={handleGenerate} disabled={!text.trim() || isGenerating} data-testid="button-generate-carousel">
               {isGenerating ? (
                 <><Loader2 className="w-4 h-4 animate-spin mr-2" />Generation...</>
               ) : (
-                <><Sparkles className="w-4 h-4 mr-2" />{selectedTemplate ? "Generer depuis template" : "Generer le carrousel"}</>
+                <><Sparkles className="w-4 h-4 mr-2" />{selectedModel === "local" ? "Generer" : "Generer avec IA"}</>
               )}
             </Button>
           </div>

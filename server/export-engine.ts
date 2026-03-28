@@ -25,6 +25,25 @@ async function getResvg() {
 }
 
 // Types matching the client-side carousel model
+interface GradientStop {
+  color: string;
+  position: number;
+}
+
+interface GradientConfig {
+  type: "linear" | "radial";
+  angle?: number;
+  stops: GradientStop[];
+}
+
+interface ShadowConfig {
+  x: number;
+  y: number;
+  blur: number;
+  spread: number;
+  color: string;
+}
+
 interface ElementStyle {
   fontSize?: number;
   fontFamily?: string;
@@ -33,12 +52,23 @@ interface ElementStyle {
   textAlign?: string;
   lineHeight?: number;
   letterSpacing?: number;
+  hyphens?: boolean;
+  textAutoHeight?: boolean;
   objectFit?: string;
   borderRadius?: number;
   opacity?: number;
   backgroundColor?: string;
+  gradient?: GradientConfig;
   textDecoration?: string;
   fontStyle?: string;
+  shadow?: ShadowConfig;
+  filterBlur?: number;
+}
+
+function gradientToCSS(g: GradientConfig): string {
+  const stops = g.stops.map(s => `${s.color} ${s.position}%`).join(", ");
+  if (g.type === "radial") return `radial-gradient(circle, ${stops})`;
+  return `linear-gradient(${g.angle ?? 180}deg, ${stops})`;
 }
 
 interface SlideElement {
@@ -61,6 +91,7 @@ interface Slide {
   order: number;
   type: string;
   backgroundColor: string;
+  backgroundGradient?: GradientConfig;
   backgroundImage?: string;
   elements: SlideElement[];
 }
@@ -162,7 +193,8 @@ function elementToSatoriNode(el: SlideElement, pixelRatio: number): any {
     case "shape": {
       const shapeStyle: Record<string, any> = {
         ...baseStyle,
-        backgroundColor: el.style.backgroundColor || "#6366F1",
+        backgroundColor: el.style.gradient ? undefined : (el.style.backgroundColor || "#6366F1"),
+        backgroundImage: el.style.gradient ? gradientToCSS(el.style.gradient) : undefined,
         borderRadius: el.style.borderRadius || 0,
       };
 
@@ -235,20 +267,30 @@ function slideToSatoriJSX(slide: Slide, settings: ExportSettings): any {
     if (node) children.push(node);
   }
 
+  const rootStyle: Record<string, any> = {
+    width: settings.width,
+    height: settings.height,
+    backgroundColor: slide.backgroundColor || "#FFFFFF",
+    position: "relative" as const,
+    display: "flex",
+    overflow: "hidden" as const,
+  };
+  applySlideGradient(rootStyle, slide);
+
   return {
     type: "div",
     props: {
-      style: {
-        width: settings.width,
-        height: settings.height,
-        backgroundColor: slide.backgroundColor || "#FFFFFF",
-        position: "relative" as const,
-        display: "flex",
-        overflow: "hidden" as const,
-      },
+      style: rootStyle,
       children,
     },
   };
+}
+
+// Helper: convert gradient config to Satori-compatible backgroundImage
+function applySlideGradient(style: Record<string, any>, slide: Slide): void {
+  if (slide.backgroundGradient) {
+    style.backgroundImage = gradientToCSS(slide.backgroundGradient);
+  }
 }
 
 /**

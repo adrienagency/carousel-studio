@@ -166,43 +166,114 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
-  // ─── LLM Generate Slides (no auth required — guests can use) ──
+  // ─── Google Fonts search (cached) ──────────────────────────────
+  let cachedFontList: string[] = [];
+  let fontCacheTime = 0;
+  const FONT_CACHE_TTL = 3600000; // 1 hour
+
+  async function getAllGoogleFonts(): Promise<string[]> {
+    if (cachedFontList.length > 0 && Date.now() - fontCacheTime < FONT_CACHE_TTL) {
+      return cachedFontList;
+    }
+    try {
+      const metaRes = await fetch("https://fonts.google.com/metadata/fonts");
+      if (!metaRes.ok) return cachedFontList;
+      const text = await metaRes.text();
+      const jsonStr = text.replace(/^\)\]\}\'/m, "").trim();
+      const data = JSON.parse(jsonStr);
+      cachedFontList = (data.familyMetadataList || []).map((f: any) => f.family);
+      fontCacheTime = Date.now();
+      console.log(`Google Fonts: cached ${cachedFontList.length} families`);
+    } catch (err: any) {
+      console.error("Google Fonts fetch error:", err.message);
+    }
+    return cachedFontList;
+  }
+
+  // Pre-warm cache on startup
+  getAllGoogleFonts();
+
+  app.get("/api/google-fonts", async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      const allFonts = await getAllGoogleFonts();
+      if (!q) {
+        // Return top 50 popular fonts
+        return res.json({ fonts: allFonts.slice(0, 50) });
+      }
+      const matches = allFonts
+        .filter((f: string) => f.toLowerCase().includes(q.toLowerCase()))
+        .slice(0, 30);
+      res.json({ fonts: matches });
+    } catch (err: any) {
+      console.error("Google Fonts search error:", err.message);
+      res.json({ fonts: [] });
+    }
+  });
+
+  // ─── LLM Generate Slides (with model choice + brand kit colors) ──
   app.post("/api/generate-slides", async (req, res) => {
     try {
-      const { text, brandKit, platform } = req.body;
+      const { text, brandKit, platform, model, width, height, decoImages, infoImages, author, topline } = req.body;
       if (!text) return res.status(400).json({ error: "Text required" });
 
-      // Use Anthropic SDK for slide generation
       const { default: Anthropic } = await import("@anthropic-ai/sdk");
       const client = new Anthropic();
 
-      const systemPrompt = `You are a carousel content strategist. Given text input, create a structured carousel for ${platform || "linkedin"}.
+      const w = width || 1080;
+      const h = height || 1350;
+      const scale = w / 1080;
 
-Return ONLY valid JSON array of slides. Each slide object:
-{
-  "type": "cover" | "content" | "end",
-  "elements": [
-    {
-      "type": "text",
-      "content": "...",
-      "role": "title" | "subtitle" | "body" | "cta"
-    }
-  ]
-}
+      const hasInfoImages = Array.isArray(infoImages) && infoImages.length > 0;
+      const infoImagesInstruction = hasInfoImages
+        ? `\nSi des images informatives sont fournies, certaines slides "content" doivent inclure "hasImage": true.\nLe texte de ces slides doit être plus court (max 15 mots pour le body) pour laisser de la place à l'image.`
+        : "";
 
-Rules:
-- Slide 1: type "cover" with compelling title + subtitle
-- Slides 2-N: type "content", one key idea per slide, title + body (max 3 lines)
-- Last slide: type "end" with CTA text
-- Extract the most impactful points from the input
-- Keep text punchy and scannable
-- 5-8 slides total`;
+      const systemPrompt = `Tu es un expert en creation de carrousels pour reseaux sociaux (LinkedIn, Instagram).
+Analyse le texte fourni et cree un carrousel percutant.
 
+Regles :
+- Slide 1 (cover) : Titre accrocheur de max 8 mots + sous-titre de max 15 mots
+- Slides intermediaires (content) : 1 idee forte par slide. Titre de max 6 mots + description de max 30 mots. Selectionne les points les plus interessants.
+- Derniere slide (end) : Call-to-action engageant + mention @handle
+- Nombre total de slides : entre 5 et 10 selon la richesse du contenu
+- Chaque slide doit pouvoir se lire independamment
+- Utilise un langage direct et impactant
+- ANALYSE EN PROFONDEUR le texte, ne te contente pas de copier les premieres phrases
+- Reformule, synthetise, rend le contenu plus percutant${infoImagesInstruction}
+
+Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Format :
+[
+  {
+    "type": "cover",
+    "elements": [
+      { "type": "text", "content": "...", "role": "title" },
+      { "type": "text", "content": "...", "role": "subtitle" }
+    ]
+  },
+  {
+    "type": "content",
+    "elements": [
+      { "type": "text", "content": "...", "role": "title" },
+      { "type": "text", "content": "...", "role": "body" }
+    ]
+  },
+  {
+    "type": "end",
+    "elements": [
+      { "type": "text", "content": "...", "role": "cta" },
+      { "type": "text", "content": "@handle", "role": "subtitle" }
+    ]
+  }
+]`;
+
+      const chosenModel = model || "claude_sonnet_4_6";
+      
       const message = await client.messages.create({
-        model: "claude_sonnet_4_6",
-        max_tokens: 2000,
+        model: chosenModel,
+        max_tokens: 4000,
         messages: [
-          { role: "user", content: `Create a carousel from this text:\n\n${text}` },
+          { role: "user", content: `Cree un carrousel a partir de ce texte. Analyse en profondeur et reformule de maniere percutante :\n\n${text}` },
         ],
         system: systemPrompt,
       });
@@ -210,7 +281,6 @@ Rules:
       const content = message.content[0];
       const responseText = content.type === "text" ? content.text : "";
       
-      // Extract JSON from response
       const jsonMatch = responseText.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
         return res.status(500).json({ error: "Failed to parse LLM response" });
@@ -218,44 +288,136 @@ Rules:
 
       const rawSlides = JSON.parse(jsonMatch[0]);
       
-      // Transform to our Slide format with brand kit colors
-      const bg = brandKit?.backgroundColor || "#FFFFFF";
-      const primaryColor = brandKit?.primaryColor || "#1A1A2E";
-      const headingFont = brandKit?.headingFont || "Inter";
-      const bodyFont = brandKit?.bodyFont || "Inter";
+      // Brand kit colors with contrast-safe text colors
+      const colors = {
+        primary: brandKit?.primaryColor || "#1A1A2E",
+        secondary: brandKit?.secondaryColor || "#6366F1",
+        accent: brandKit?.accentColor || "#F59E0B",
+        bg: brandKit?.backgroundColor || "#FFFFFF",
+        headingFont: brandKit?.headingFont || "Inter",
+        bodyFont: brandKit?.bodyFont || "Inter",
+      };
 
-      const slides = rawSlides.map((raw: any, index: number) => ({
-        id: crypto.randomUUID(),
-        order: index,
-        type: raw.type,
-        backgroundColor: bg,
-        elements: (raw.elements || []).map((el: any, elIdx: number) => ({
+      // Color palette for slides — alternate between brand colors
+      const bgPalette = [
+        colors.bg,           // cover: light bg
+        colors.primary,      // content 1: dark bg
+        colors.bg,           // content 2: light bg  
+        colors.secondary,    // content 3: colored bg
+        colors.bg,           // content 4: light bg
+        colors.accent,       // content 5: accent bg
+        colors.bg,           // content 6: light bg
+        colors.primary,      // content 7: dark bg
+        colors.primary,      // end: dark bg
+      ];
+
+      // Determine text color based on background luminance for contrast
+      function getContrastColor(bgHex: string): string {
+        const hex = bgHex.replace("#", "");
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance > 0.5 ? "#1A1A2E" : "#FFFFFF";
+      }
+
+      // Font sizes increased by 30% (B1)
+      const titleSize = Math.round(72 * scale);
+      const subtitleSize = Math.round(36 * scale);
+      const bodySize = Math.round(32 * scale);
+      const ctaSize = Math.round(48 * scale);
+
+      const slides = rawSlides.map((raw: any, index: number) => {
+        const slideBg = bgPalette[index % bgPalette.length] || colors.bg;
+        const textColor = getContrastColor(slideBg);
+        const mutedColor = textColor === "#FFFFFF" ? "#FFFFFFAA" : "#1A1A2E99";
+
+        return {
           id: crypto.randomUUID(),
-          type: "text",
-          x: 80,
-          y: el.role === "title" ? 80 + (raw.type === "cover" ? 300 : 60) : el.role === "subtitle" ? 420 : 200 + elIdx * 140,
-          width: 920,
-          height: el.role === "title" ? 160 : el.role === "body" ? 200 : 80,
-          rotation: 0,
-          content: el.content,
-          locked: false,
-          visible: true,
-          style: {
-            fontSize: el.role === "title" ? 56 : el.role === "subtitle" ? 28 : el.role === "cta" ? 32 : 24,
-            fontFamily: el.role === "title" || el.role === "cta" ? headingFont : bodyFont,
-            fontWeight: el.role === "title" || el.role === "cta" ? 800 : el.role === "subtitle" ? 500 : 400,
-            color: primaryColor,
-            textAlign: raw.type === "cover" || raw.type === "end" ? "center" : "left",
-            lineHeight: 1.3,
-            letterSpacing: el.role === "title" ? -0.02 : 0,
-          },
-        })),
-      }));
+          order: index,
+          type: raw.type,
+          backgroundColor: slideBg,
+          elements: (raw.elements || []).map((el: any, elIdx: number) => ({
+            id: crypto.randomUUID(),
+            type: "text",
+            x: Math.round(80 * scale),
+            y: el.role === "title"
+              ? Math.round(raw.type === "cover" ? h * 0.35 : h * 0.12)
+              : el.role === "subtitle"
+              ? Math.round(raw.type === "cover" ? h * 0.55 : h * 0.85)
+              : Math.round(h * 0.35 + elIdx * Math.round(140 * scale)),
+            width: Math.round(w - 160 * scale),
+            height: el.role === "title" ? Math.round(200 * scale) : el.role === "body" ? Math.round(280 * scale) : Math.round(100 * scale),
+            rotation: 0,
+            content: el.content,
+            locked: false,
+            visible: true,
+            zIndex: elIdx,
+            style: {
+              fontSize: el.role === "title" ? titleSize : el.role === "subtitle" ? subtitleSize : el.role === "cta" ? ctaSize : bodySize,
+              fontFamily: el.role === "title" || el.role === "cta" ? colors.headingFont : colors.bodyFont,
+              fontWeight: el.role === "title" || el.role === "cta" ? 800 : el.role === "subtitle" ? 400 : 400,
+              color: el.role === "subtitle" ? mutedColor : textColor,
+              textAlign: raw.type === "cover" || raw.type === "end" ? "center" : "left",
+              lineHeight: el.role === "title" ? 1.15 : 1.5,
+              letterSpacing: el.role === "title" ? -0.02 : 0,
+              textAutoHeight: true,
+            },
+          })),
+        };
+      });
 
-      res.json({ slides });
+      res.json({ slides, model: chosenModel });
     } catch (err: any) {
       console.error("LLM generation error:", err);
       res.status(500).json({ error: err.message || "Generation failed" });
+    }
+  });
+
+  // ─── Translate text ─────────────────────────────────────────
+  app.post("/api/translate", async (req, res) => {
+    try {
+      const { slides, targetLang } = req.body;
+      if (!slides) return res.status(400).json({ error: "Slides required" });
+
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic();
+
+      // Extract all text content from slides
+      const texts: { slideIdx: number; elIdx: number; content: string }[] = [];
+      slides.forEach((slide: any, si: number) => {
+        (slide.elements || []).forEach((el: any, ei: number) => {
+          if (el.type === "text" && el.content) {
+            texts.push({ slideIdx: si, elIdx: ei, content: el.content });
+          }
+        });
+      });
+
+      const allTexts = texts.map((t) => t.content).join("\n---SEPARATOR---\n");
+
+      const message = await client.messages.create({
+        model: "claude_haiku_4_5",
+        max_tokens: 4000,
+        messages: [
+          { role: "user", content: `Translate the following texts to ${targetLang || "American English"}. Keep the same tone and style. Return ONLY the translated texts separated by ---SEPARATOR--- (same order, same count). Do not add anything else.\n\n${allTexts}` },
+        ],
+      });
+
+      const responseText = message.content[0].type === "text" ? message.content[0].text : "";
+      const translated = responseText.split(/---SEPARATOR---/).map((s: string) => s.trim());
+
+      // Map back to slides
+      const result = JSON.parse(JSON.stringify(slides));
+      texts.forEach((t, i) => {
+        if (translated[i]) {
+          result[t.slideIdx].elements[t.elIdx].content = translated[i];
+        }
+      });
+
+      res.json({ slides: result });
+    } catch (err: any) {
+      console.error("Translation error:", err);
+      res.status(500).json({ error: err.message || "Translation failed" });
     }
   });
 

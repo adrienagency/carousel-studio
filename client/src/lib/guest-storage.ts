@@ -3,7 +3,7 @@
  * Stores carousels, templates, and brand kits.
  */
 
-import type { GuestTemplate, GuestBrandKit } from "@/types/carousel";
+import type { GuestTemplate, GuestBrandKit, BrandKitImage } from "@/types/carousel";
 
 export interface GuestCarousel {
   id: string;
@@ -166,6 +166,34 @@ export const guestStorage = {
   deleteBrandKit(id: string): void {
     const store = getStore();
     store.brandKits = store.brandKits.filter((k) => k.id !== id);
+    saveStore(store);
+  },
+
+  // ─── Brand Kit Images ──────────────────────────────
+  getBrandKitImages(kitId: string): BrandKitImage[] {
+    const kit = this.getBrandKit(kitId);
+    return kit?.images || [];
+  },
+  addBrandKitImage(kitId: string, name: string, dataUrl: string): BrandKitImage | undefined {
+    const store = getStore();
+    const idx = store.brandKits.findIndex((k) => k.id === kitId);
+    if (idx === -1) return undefined;
+    const img: BrandKitImage = {
+      id: crypto.randomUUID(),
+      name,
+      dataUrl,
+      addedAt: new Date().toISOString(),
+    };
+    if (!store.brandKits[idx].images) store.brandKits[idx].images = [];
+    store.brandKits[idx].images!.push(img);
+    saveStore(store);
+    return img;
+  },
+  removeBrandKitImage(kitId: string, imageId: string): void {
+    const store = getStore();
+    const idx = store.brandKits.findIndex((k) => k.id === kitId);
+    if (idx === -1) return;
+    store.brandKits[idx].images = (store.brandKits[idx].images || []).filter((i) => i.id !== imageId);
     saveStore(store);
   },
 

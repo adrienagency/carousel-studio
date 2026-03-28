@@ -1,38 +1,37 @@
 import type { Slide, SlideElement } from "@/types/carousel";
 
-/**
- * Client-side fallback slide generator.
- * Used when the LLM API is unavailable.
- * Splits the input text into logical chunks and creates slides.
- */
-
-interface GeneratorOptions {
+export interface GeneratorOptions {
   width: number;
   height: number;
   primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
   backgroundColor?: string;
   headingFont?: string;
   bodyFont?: string;
 }
 
 function splitIntoSentences(text: string): string[] {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 3);
+  return text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length > 3);
 }
 
 function splitIntoParagraphs(text: string): string[] {
-  return text
-    .split(/\n\s*\n|\n/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 5);
+  return text.split(/\n\s*\n|\n/).map((p) => p.trim()).filter((p) => p.length > 5);
 }
 
 function truncate(str: string, maxWords: number): string {
   const words = str.split(/\s+/);
   if (words.length <= maxWords) return str;
   return words.slice(0, maxWords).join(" ") + "...";
+}
+
+function getContrastColor(bgHex: string): string {
+  const hex = bgHex.replace("#", "");
+  const r = parseInt(hex.substr(0, 2), 16) || 0;
+  const g = parseInt(hex.substr(2, 2), 16) || 0;
+  const b = parseInt(hex.substr(4, 2), 16) || 0;
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.5 ? "#1A1A2E" : "#FFFFFF";
 }
 
 function makeTextElement(
@@ -55,6 +54,7 @@ function makeTextElement(
     content,
     locked: false,
     visible: true,
+    zIndex: 0,
     style: {
       fontSize: opts.fontSize,
       fontFamily: opts.fontFamily,
@@ -63,153 +63,132 @@ function makeTextElement(
       textAlign: opts.textAlign,
       lineHeight: opts.lineHeight ?? 1.3,
       letterSpacing: opts.letterSpacing ?? 0,
+      textAutoHeight: true,
     },
   };
 }
 
-export function generateSlidesFallback(
-  text: string,
-  options: GeneratorOptions
-): Slide[] {
+export function generateSlidesFallback(text: string, options: GeneratorOptions): Slide[] {
   const { width, height } = options;
   const bg = options.backgroundColor || "#FFFFFF";
   const color = options.primaryColor || "#1A1A2E";
   const hFont = options.headingFont || "Inter";
   const bFont = options.bodyFont || "Inter";
-  const padX = Math.round(width * 0.074); // ~80px at 1080
+  const padX = Math.round(width * 0.074);
   const contentW = width - padX * 2;
 
-  // Scale font sizes relative to 1080 width
   const scale = width / 1080;
-  const titleSize = Math.round(56 * scale);
-  const subtitleSize = Math.round(28 * scale);
-  const bodySize = Math.round(24 * scale);
-  const ctaSize = Math.round(36 * scale);
+  // Font sizes +30% for readability
+  const titleSize = Math.round(72 * scale);
+  const subtitleSize = Math.round(36 * scale);
+  const bodySize = Math.round(32 * scale);
+  const ctaSize = Math.round(48 * scale);
+
+  // Brand color palette for alternating slide backgrounds
+  const secondary = options.secondaryColor || "#6366F1";
+  const accent = options.accentColor || "#F59E0B";
+  const bgPalette = [bg, color, bg, secondary, bg, accent, bg, color, color];
 
   const paragraphs = splitIntoParagraphs(text);
   const sentences = splitIntoSentences(text);
-
-  // Use paragraphs if enough, otherwise sentences
   const chunks = paragraphs.length >= 3 ? paragraphs : sentences;
 
-  // Determine content for each role
   const coverTitle = truncate(chunks[0] || "Mon Carrousel", 8);
-  const coverSubtitle = chunks.length > 1
-    ? truncate(chunks[1], 15)
-    : "Decouvrez les points cles";
+  const coverSubtitle = chunks.length > 1 ? truncate(chunks[1], 15) : "Decouvrez les points cles";
 
-  // Content slides: take the most interesting chunks (skip first 2 used for cover)
   const contentChunks = chunks.slice(2);
   const maxContent = Math.min(contentChunks.length, 7);
   const contentSlides: { title: string; body: string }[] = [];
 
   for (let i = 0; i < maxContent; i++) {
     const chunk = contentChunks[i];
-    const chunkSentences = splitIntoSentences(chunk);
-    const title = truncate(chunkSentences[0] || chunk, 6);
-    const body = chunkSentences.length > 1
-      ? truncate(chunkSentences.slice(1).join(" "), 30)
-      : truncate(chunk, 30);
+    const cs = splitIntoSentences(chunk);
+    const title = truncate(cs[0] || chunk, 6);
+    const body = cs.length > 1 ? truncate(cs.slice(1).join(" "), 30) : truncate(chunk, 30);
     contentSlides.push({ title, body });
   }
 
-  // Ensure at least 3 content slides for a total of 5
   while (contentSlides.length < 3) {
-    contentSlides.push({
-      title: `Point cle ${contentSlides.length + 1}`,
-      body: truncate(text, 30),
-    });
+    contentSlides.push({ title: `Point cle ${contentSlides.length + 1}`, body: truncate(text, 30) });
   }
 
   const slides: Slide[] = [];
 
-  // ─── COVER SLIDE ────────────────────────────────────
-  const coverCenterY = Math.round(height * 0.35);
+  // COVER
+  const cBg = bgPalette[0];
+  const cTxt = getContrastColor(cBg);
+  const cMuted = cTxt === "#FFFFFF" ? "#FFFFFFAA" : "#1A1A2E99";
+  const coverY = Math.round(height * 0.35);
   slides.push({
-    id: crypto.randomUUID(),
-    order: 0,
-    type: "cover",
-    backgroundColor: bg,
+    id: crypto.randomUUID(), order: 0, type: "cover", backgroundColor: cBg,
     elements: [
       makeTextElement(coverTitle, {
-        x: padX, y: coverCenterY, width: contentW, height: Math.round(180 * scale),
+        x: padX, y: coverY, width: contentW, height: Math.round(220 * scale),
         fontSize: titleSize, fontWeight: 800, fontFamily: hFont,
-        color, textAlign: "center", lineHeight: 1.15, letterSpacing: -0.02,
+        color: cTxt, textAlign: "center", lineHeight: 1.15, letterSpacing: -0.02,
       }),
       makeTextElement(coverSubtitle, {
-        x: padX, y: coverCenterY + Math.round(200 * scale), width: contentW, height: Math.round(80 * scale),
+        x: padX, y: coverY + Math.round(240 * scale), width: contentW, height: Math.round(100 * scale),
         fontSize: subtitleSize, fontWeight: 400, fontFamily: bFont,
-        color: color + "99", textAlign: "center",
+        color: cMuted, textAlign: "center",
       }),
     ],
   });
 
-  // ─── CONTENT SLIDES ─────────────────────────────────
+  // CONTENT SLIDES
   contentSlides.forEach((cs, i) => {
-    const slideNum = Math.round(height * 0.06);
+    const sBg = bgPalette[(i + 1) % bgPalette.length] || bg;
+    const sTxt = getContrastColor(sBg);
+    const sMuted = sTxt === "#FFFFFF" ? "#FFFFFF44" : color + "22";
+    const sBody = sTxt === "#FFFFFF" ? "#FFFFFFCC" : color + "CC";
     slides.push({
-      id: crypto.randomUUID(),
-      order: i + 1,
-      type: "content",
-      backgroundColor: bg,
+      id: crypto.randomUUID(), order: i + 1, type: "content", backgroundColor: sBg,
       elements: [
-        // Slide number
         makeTextElement(`${String(i + 1).padStart(2, "0")}`, {
-          x: padX, y: Math.round(height * 0.07), width: Math.round(100 * scale), height: Math.round(60 * scale),
-          fontSize: Math.round(48 * scale), fontWeight: 800, fontFamily: hFont,
-          color: color + "22", textAlign: "left",
+          x: padX, y: Math.round(height * 0.07), width: Math.round(100 * scale), height: Math.round(80 * scale),
+          fontSize: Math.round(62 * scale), fontWeight: 800, fontFamily: hFont,
+          color: sMuted, textAlign: "left",
         }),
-        // Title
         makeTextElement(cs.title, {
-          x: padX, y: Math.round(height * 0.18), width: contentW, height: Math.round(120 * scale),
-          fontSize: Math.round(40 * scale), fontWeight: 700, fontFamily: hFont,
-          color, textAlign: "left", lineHeight: 1.2, letterSpacing: -0.01,
+          x: padX, y: Math.round(height * 0.18), width: contentW, height: Math.round(150 * scale),
+          fontSize: Math.round(52 * scale), fontWeight: 700, fontFamily: hFont,
+          color: sTxt, textAlign: "left", lineHeight: 1.2, letterSpacing: -0.01,
         }),
-        // Separator line
-        {
-          id: crypto.randomUUID(),
-          type: "shape" as const,
-          x: padX,
-          y: Math.round(height * 0.34),
-          width: Math.round(60 * scale),
-          height: Math.round(4 * scale),
-          rotation: 0,
-          locked: false,
-          visible: true,
-          style: { backgroundColor: color, borderRadius: 2, opacity: 0.3 },
-        },
-        // Body
+        { id: crypto.randomUUID(), type: "shape" as const, x: padX, y: Math.round(height * 0.36),
+          width: Math.round(60 * scale), height: Math.round(4 * scale), rotation: 0,
+          locked: false, visible: true, zIndex: 0,
+          style: { backgroundColor: sTxt, borderRadius: 2, opacity: 0.3 } },
         makeTextElement(cs.body, {
-          x: padX, y: Math.round(height * 0.40), width: contentW, height: Math.round(240 * scale),
+          x: padX, y: Math.round(height * 0.42), width: contentW, height: Math.round(280 * scale),
           fontSize: bodySize, fontWeight: 400, fontFamily: bFont,
-          color: color + "CC", textAlign: "left", lineHeight: 1.6,
+          color: sBody, textAlign: "left", lineHeight: 1.6,
         }),
       ],
     });
   });
 
-  // ─── END SLIDE ──────────────────────────────────────
+  // END SLIDE
+  const eBg = bgPalette[slides.length % bgPalette.length] || color;
+  const eTxt = getContrastColor(eBg);
+  const eMuted = eTxt === "#FFFFFF" ? "#FFFFFF88" : color + "88";
   const endY = Math.round(height * 0.35);
   slides.push({
-    id: crypto.randomUUID(),
-    order: slides.length,
-    type: "end",
-    backgroundColor: bg,
+    id: crypto.randomUUID(), order: slides.length, type: "end", backgroundColor: eBg,
     elements: [
       makeTextElement("Merci !", {
-        x: padX, y: endY, width: contentW, height: Math.round(120 * scale),
+        x: padX, y: endY, width: contentW, height: Math.round(150 * scale),
         fontSize: titleSize, fontWeight: 800, fontFamily: hFont,
-        color, textAlign: "center", lineHeight: 1.2,
+        color: eTxt, textAlign: "center", lineHeight: 1.2,
       }),
       makeTextElement("Suivez-moi pour plus de contenu", {
-        x: padX, y: endY + Math.round(140 * scale), width: contentW, height: Math.round(60 * scale),
+        x: padX, y: endY + Math.round(180 * scale), width: contentW, height: Math.round(80 * scale),
         fontSize: subtitleSize, fontWeight: 400, fontFamily: bFont,
-        color: color + "88", textAlign: "center",
+        color: eMuted, textAlign: "center",
       }),
       makeTextElement("@votrehandle", {
-        x: padX, y: endY + Math.round(220 * scale), width: contentW, height: Math.round(60 * scale),
+        x: padX, y: endY + Math.round(280 * scale), width: contentW, height: Math.round(80 * scale),
         fontSize: ctaSize, fontWeight: 700, fontFamily: hFont,
-        color, textAlign: "center",
+        color: eTxt, textAlign: "center",
       }),
     ],
   });
@@ -219,66 +198,35 @@ export function generateSlidesFallback(
 
 /**
  * Generate slides from text using a template's structure.
- * Preserves the template's visual layout (colors, fonts, positions)
- * but replaces the text content with parsed chunks from the input.
  */
-export function generateFromTemplate(
-  text: string,
-  templateSlides: Slide[],
-): Slide[] {
+export function generateFromTemplate(text: string, templateSlides: Slide[]): Slide[] {
   const paragraphs = text.split(/\n\s*\n|\n/).map(p => p.trim()).filter(p => p.length > 5);
   const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length > 3);
   const chunks = paragraphs.length >= 3 ? paragraphs : sentences;
 
-  // Map chunks to template slide structure
   const result: Slide[] = [];
 
   for (let i = 0; i < templateSlides.length; i++) {
     const tpl = templateSlides[i];
-    const newSlide: Slide = {
-      ...JSON.parse(JSON.stringify(tpl)),
-      id: crypto.randomUUID(),
-      order: i,
-    };
-
-    // Replace text content in elements using available chunks
+    const newSlide: Slide = { ...JSON.parse(JSON.stringify(tpl)), id: crypto.randomUUID(), order: i };
     const textElements = newSlide.elements.filter(el => el.type === "text");
-    
+
     if (tpl.type === "cover") {
-      // Cover: use first chunk as title, second as subtitle
-      if (textElements[0] && chunks[0]) {
-        const words = chunks[0].split(/\s+/);
-        textElements[0].content = words.slice(0, 8).join(" ");
-      }
-      if (textElements[1] && chunks[1]) {
-        const words = chunks[1].split(/\s+/);
-        textElements[1].content = words.slice(0, 15).join(" ");
-      }
+      if (textElements[0] && chunks[0]) textElements[0].content = truncate(chunks[0], 8);
+      if (textElements[1] && chunks[1]) textElements[1].content = truncate(chunks[1], 15);
     } else if (tpl.type === "end") {
-      // End slide: keep CTA as-is or use last chunk
-      // Don't modify end slides much
+      // Keep end slide as-is
     } else {
-      // Content slides: map remaining chunks
-      const contentIdx = i - 1; // Skip cover
+      const contentIdx = i - 1;
       const chunk = chunks[Math.min(contentIdx + 1, chunks.length - 1)] || "";
-      const chunkSentences = chunk.split(/(?<=[.!?])\s+/).filter(s => s.length > 3);
-      
-      // First text element = title
-      // Find the largest font-size element as title
-      const sortedBySize = [...textElements].sort(
-        (a, b) => (b.style.fontSize || 0) - (a.style.fontSize || 0)
-      );
-      
-      if (sortedBySize[0] && chunkSentences[0]) {
-        const words = chunkSentences[0].split(/\s+/);
-        sortedBySize[0].content = words.slice(0, 6).join(" ");
-      }
-      // Remaining text elements = body
+      const cs = chunk.split(/(?<=[.!?])\s+/).filter(s => s.length > 3);
+      const sortedBySize = [...textElements].sort((a, b) => (b.style.fontSize || 0) - (a.style.fontSize || 0));
+      if (sortedBySize[0] && cs[0]) sortedBySize[0].content = truncate(cs[0], 6);
       for (let j = 1; j < sortedBySize.length; j++) {
-        if (sortedBySize[j] && chunkSentences.length > 1) {
-          sortedBySize[j].content = chunkSentences.slice(1).join(" ").split(/\s+/).slice(0, 30).join(" ");
-        } else if (sortedBySize[j] && chunk) {
-          sortedBySize[j].content = chunk.split(/\s+/).slice(0, 30).join(" ");
+        if (sortedBySize[j]) {
+          sortedBySize[j].content = cs.length > 1
+            ? truncate(cs.slice(1).join(" "), 30)
+            : truncate(chunk, 30);
         }
       }
     }

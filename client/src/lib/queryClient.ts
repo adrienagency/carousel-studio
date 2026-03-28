@@ -1,6 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
+const API_BASE = "";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -14,7 +14,8 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(`${API_BASE}${url}`, {
+  const normalizedUrl = url.startsWith("/") ? `.${url}` : url;
+  const res = await fetch(`${API_BASE}${normalizedUrl}`, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
@@ -30,7 +31,9 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`);
+    const path = queryKey.join("/");
+    const normalizedPath = path.startsWith("/") ? `.${path}` : path;
+    const res = await fetch(`${API_BASE}${normalizedPath}`);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

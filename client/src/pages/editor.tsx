@@ -38,6 +38,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { FontPicker } from "@/components/font-picker";
+import { GradientPicker, gradientToCSS } from "@/components/gradient-picker";
+import type { GradientConfig, ShadowConfig } from "@/types/carousel";
 import { FORMAT_PRESETS } from "@/lib/format-presets";
 import { generateSlidesFallback } from "@/lib/slide-generator";
 import {
@@ -63,6 +66,7 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  AlignJustify,
   Loader2,
   Check,
   Undo2,
@@ -258,9 +262,9 @@ function SlideRenderer({
         width: slideWidth * scale,
         height: slideHeight * scale,
         backgroundColor: slide.backgroundColor,
-        backgroundImage: slide.backgroundImage
-          ? `url(${slide.backgroundImage})`
-          : undefined,
+        backgroundImage: slide.backgroundGradient
+          ? gradientToCSS(slide.backgroundGradient)
+          : slide.backgroundImage ? `url(${slide.backgroundImage})` : undefined,
         backgroundSize: "cover",
         backgroundPosition: "center",
         ...(isAutoLayout
@@ -298,7 +302,8 @@ function SlideRenderer({
               left: element.x * scale,
               top: element.y * scale,
               width: element.width * scale,
-              height: element.height * scale,
+              height: element.type === "text" && element.style.textAutoHeight ? "auto" : element.height * scale,
+              minHeight: element.type === "text" && element.style.textAutoHeight ? element.height * scale : undefined,
               transform: element.rotation
                 ? `rotate(${element.rotation}deg)`
                 : undefined,
@@ -317,6 +322,10 @@ function SlideRenderer({
                 ? "2px solid hsl(239 84% 67%)"
                 : "none",
               outlineOffset: 1,
+              boxShadow: element.style.shadow
+                ? `${element.style.shadow.x}px ${element.style.shadow.y}px ${element.style.shadow.blur}px ${element.style.shadow.spread}px ${element.style.shadow.color}`
+                : undefined,
+              filter: element.style.filterBlur ? `blur(${element.style.filterBlur}px)` : undefined,
             }}
             onMouseDown={(e) => handleMouseDown(e, element)}
             onDoubleClick={() => {
@@ -362,13 +371,13 @@ function SlideRenderer({
               ) : (
                 <div
                   className="w-full h-full whitespace-pre-wrap"
+                  lang={element.style.hyphens ? "fr" : undefined}
                   style={{
                     fontSize: (element.style.fontSize || 24) * scale,
                     fontFamily: element.style.fontFamily || "Inter",
                     fontWeight: element.style.fontWeight || 400,
                     color: element.style.color || "#000",
-                    textAlign:
-                      (element.style.textAlign as any) || "left",
+                    textAlign: element.style.textAlign || "left",
                     lineHeight: element.style.lineHeight || 1.4,
                     letterSpacing: element.style.letterSpacing
                       ? `${element.style.letterSpacing}em`
@@ -377,6 +386,8 @@ function SlideRenderer({
                     fontStyle: element.style.fontStyle,
                     wordBreak: "break-word",
                     overflow: "hidden",
+                    hyphens: element.style.hyphens ? "auto" : undefined,
+                    WebkitHyphens: element.style.hyphens ? "auto" : undefined,
                   }}
                 >
                   {element.content || "Texte"}
@@ -404,8 +415,12 @@ function SlideRenderer({
               <div
                 className="w-full h-full"
                 style={{
-                  backgroundColor:
-                    element.style.backgroundColor || "#6366F1",
+                  backgroundColor: element.style.gradient
+                    ? undefined
+                    : element.style.backgroundColor || "#6366F1",
+                  backgroundImage: element.style.gradient
+                    ? gradientToCSS(element.style.gradient)
+                    : undefined,
                   borderRadius: element.style.borderRadius
                     ? element.style.borderRadius * scale
                     : 0,
@@ -511,6 +526,12 @@ function PropertiesPanel() {
             />
           </div>
         </div>
+
+        <GradientPicker
+          value={slide.backgroundGradient}
+          fallbackColor={slide.backgroundColor}
+          onChange={(gradient) => updateSlide(activeSlideIndex, { backgroundGradient: gradient })}
+        />
 
         {/* Background image upload */}
         <div className="space-y-2">
@@ -937,15 +958,9 @@ function PropertiesPanel() {
             <div className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-xs">Police</Label>
-                <Input
+                <FontPicker
                   value={element.style.fontFamily || "Inter"}
-                  onChange={(e) =>
-                    updateElementStyle(element.id, {
-                      fontFamily: e.target.value,
-                    })
-                  }
-                  className="h-8 text-xs"
-                  placeholder="Inter"
+                  onChange={(fontFamily) => updateElementStyle(element.id, { fontFamily })}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -1100,6 +1115,19 @@ function PropertiesPanel() {
                 >
                   <AlignRight className="w-3.5 h-3.5" />
                 </Button>
+                <Button variant={element.style.textAlign === "justify" ? "secondary" : "ghost"} size="icon" className="h-8 w-8"
+                  onClick={() => updateElementStyle(element.id, { textAlign: "justify" })}>
+                  <AlignJustify className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Cesure</Label>
+                <Switch checked={!!element.style.hyphens} onCheckedChange={(v) => updateElementStyle(element.id, { hyphens: v })} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Hauteur auto</Label>
+                <Switch checked={!!element.style.textAutoHeight} onCheckedChange={(v) => updateElementStyle(element.id, { textAutoHeight: v })} />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -1229,6 +1257,11 @@ function PropertiesPanel() {
               />
             </div>
           </div>
+          <GradientPicker
+            value={element.style.gradient}
+            fallbackColor={element.style.backgroundColor || "#6366F1"}
+            onChange={(gradient) => updateElementStyle(element.id, { gradient })}
+          />
           <div className="space-y-2">
             <Label className="text-xs">Rayon de bordure</Label>
             <Slider
@@ -1259,6 +1292,50 @@ function PropertiesPanel() {
           max={100}
           step={1}
         />
+      </div>
+
+      {/* Shadow — all elements */}
+      <Separator />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Ombre</Label>
+          <Switch checked={!!element.style.shadow} onCheckedChange={(v) => {
+            if (v) updateElementStyle(element.id, { shadow: { x: 4, y: 4, blur: 12, spread: 0, color: "#00000033" } });
+            else updateElementStyle(element.id, { shadow: undefined });
+          }} />
+        </div>
+        {element.style.shadow && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">X</Label>
+                <Input type="number" value={element.style.shadow.x} onChange={(e) => updateElementStyle(element.id, { shadow: { ...element.style.shadow!, x: Number(e.target.value) } })} className="h-6 text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Y</Label>
+                <Input type="number" value={element.style.shadow.y} onChange={(e) => updateElementStyle(element.id, { shadow: { ...element.style.shadow!, y: Number(e.target.value) } })} className="h-6 text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Flou</Label>
+                <Input type="number" value={element.style.shadow.blur} onChange={(e) => updateElementStyle(element.id, { shadow: { ...element.style.shadow!, blur: Number(e.target.value) } })} className="h-6 text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Etendue</Label>
+                <Input type="number" value={element.style.shadow.spread} onChange={(e) => updateElementStyle(element.id, { shadow: { ...element.style.shadow!, spread: Number(e.target.value) } })} className="h-6 text-xs" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="color" value={element.style.shadow.color.slice(0, 7)} onChange={(e) => updateElementStyle(element.id, { shadow: { ...element.style.shadow!, color: e.target.value + "33" } })} className="w-6 h-6 rounded cursor-pointer border-0 p-0" />
+              <Input value={element.style.shadow.color} onChange={(e) => updateElementStyle(element.id, { shadow: { ...element.style.shadow!, color: e.target.value } })} className="h-6 text-[10px] font-mono" maxLength={9} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Blur — all elements */}
+      <div className="space-y-2">
+        <Label className="text-xs">Flou ({element.style.filterBlur || 0}px)</Label>
+        <Slider value={[element.style.filterBlur || 0]} onValueChange={([v]) => updateElementStyle(element.id, { filterBlur: v })} min={0} max={40} step={1} />
       </div>
     </div>
   );

@@ -15,6 +15,25 @@ export interface SlideElement {
   layout?: ElementLayout;
 }
 
+export interface GradientStop {
+  color: string;
+  position: number; // 0-100
+}
+
+export interface GradientConfig {
+  type: "linear" | "radial";
+  angle?: number; // degrees, for linear
+  stops: GradientStop[];
+}
+
+export interface ShadowConfig {
+  x: number;
+  y: number;
+  blur: number;
+  spread: number;
+  color: string;
+}
+
 export interface ElementStyle {
   fontSize?: number;
   fontFamily?: string;
@@ -23,13 +42,18 @@ export interface ElementStyle {
   textAlign?: "left" | "center" | "right" | "justify";
   lineHeight?: number;
   letterSpacing?: number;
+  hyphens?: boolean;
+  textAutoHeight?: boolean;
   objectFit?: "cover" | "contain" | "fill";
   aspectRatio?: string;
   borderRadius?: number;
   opacity?: number;
   backgroundColor?: string;
+  gradient?: GradientConfig;
   textDecoration?: string;
   fontStyle?: string;
+  shadow?: ShadowConfig;
+  filterBlur?: number; // px
 }
 
 export interface ElementLayout {
@@ -48,6 +72,7 @@ export interface Slide {
   order: number;
   type: SlideType;
   backgroundColor: string;
+  backgroundGradient?: GradientConfig;
   backgroundImage?: string;
   autoLayout?: boolean;
   layoutDirection?: "vertical" | "horizontal";

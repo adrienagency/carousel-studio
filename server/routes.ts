@@ -166,6 +166,48 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  // ─── Google Fonts search ─────────────────────────────────────
+  app.get("/api/google-fonts", async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      if (!q) return res.json({ fonts: [] });
+
+      // Use the Google Fonts Developer API (free, no key needed for CSS endpoint)
+      // We'll fetch from the CSS API and parse font family names
+      const searchUrl = `https://fonts.google.com/metadata/fonts`;
+      const metaRes = await fetch(searchUrl);
+      if (!metaRes.ok) {
+        // Fallback: return popular fonts matching query
+        const popular = [
+          "Inter", "Roboto", "Open Sans", "Montserrat", "Poppins", "Lato",
+          "Oswald", "Raleway", "Playfair Display", "Merriweather",
+          "Nunito", "DM Sans", "Space Grotesk", "Source Sans 3",
+          "Work Sans", "Outfit", "Plus Jakarta Sans", "Barlow",
+          "Archivo", "Sora", "Manrope", "Bebas Neue", "Abril Fatface",
+          "Bitter", "Crimson Text", "Fira Sans", "Inconsolata",
+          "Josefin Sans", "Karla", "Libre Baskerville", "Mukta",
+          "Noto Sans", "PT Sans", "Quicksand", "Rubik",
+          "Titillium Web", "Ubuntu", "Vollkorn", "Yanone Kaffeesatz",
+        ];
+        const filtered = popular.filter(f => f.toLowerCase().includes(q.toLowerCase()));
+        return res.json({ fonts: filtered.slice(0, 20) });
+      }
+
+      const text = await metaRes.text();
+      // The metadata response starts with )]}' — strip it
+      const jsonStr = text.replace(/^\)\]\}\'/m, "").trim();
+      const data = JSON.parse(jsonStr);
+      const allFamilies: string[] = (data.familyMetadataList || []).map((f: any) => f.family);
+      const matches = allFamilies
+        .filter((f: string) => f.toLowerCase().includes(q.toLowerCase()))
+        .slice(0, 30);
+      res.json({ fonts: matches });
+    } catch (err: any) {
+      console.error("Google Fonts search error:", err.message);
+      res.json({ fonts: [] });
+    }
+  });
+
   // ─── LLM Generate Slides (with model choice + brand kit colors) ──
   app.post("/api/generate-slides", async (req, res) => {
     try {

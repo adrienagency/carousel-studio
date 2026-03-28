@@ -18,6 +18,8 @@ const LLM_MODELS = [
   { id: "local", name: "Local (sans LLM)", description: "Parsing intelligent cote client" },
   { id: "claude_haiku_4_5", name: "Claude Haiku", description: "Rapide, economique" },
   { id: "claude_sonnet_4_6", name: "Claude Sonnet", description: "Equilibre qualite/vitesse" },
+  { id: "claude_opus_4_6", name: "Claude Opus", description: "Qualite maximale" },
+  { id: "claude_opus_4_6_thinking", name: "Claude Opus (Thinking)", description: "Reflexion approfondie" },
   { id: "gpt_5_1", name: "GPT-5.1", description: "OpenAI, performant" },
   { id: "gemini_3_flash", name: "Gemini Flash", description: "Google, rapide" },
 ];
@@ -184,11 +186,12 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [selectedBrandKit, setSelectedBrandKit] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState("local");
+  const [selectedModel, setSelectedModel] = useState("claude_sonnet_4_6");
 
   // Images
   const [decoImages, setDecoImages] = useState<{ id: string; name: string; dataUrl: string }[]>([]);
   const [infoImages, setInfoImages] = useState<{ id: string; name: string; dataUrl: string }[]>([]);
+  const [refImages, setRefImages] = useState<{ id: string; name: string; dataUrl: string }[]>([]);
 
   // Author options
   const [showAuthor, setShowAuthor] = useState(false);
@@ -214,7 +217,7 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
     return brandKits.find((k) => k.id === selectedBrandKit) || null;
   };
 
-  const handleImageUpload = (type: "deco" | "info") => {
+  const handleImageUpload = (type: "deco" | "info" | "ref") => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -226,7 +229,8 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
         reader.onload = () => {
           const item = { id: crypto.randomUUID(), name: file.name, dataUrl: reader.result as string };
           if (type === "deco") setDecoImages((prev) => [...prev, item]);
-          else setInfoImages((prev) => [...prev, item]);
+          else if (type === "info") setInfoImages((prev) => [...prev, item]);
+          else setRefImages((prev) => [...prev, item]);
         };
         reader.readAsDataURL(file);
       });
@@ -305,6 +309,7 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
               infoImages: infoImages.map((img) => ({ id: img.id, name: img.name, dataUrl: img.dataUrl })),
               author: showAuthor ? { name: authorName, role: authorRole, photo: authorPhoto, fontSize: authorFontSize } : null,
               topline: showTopline ? { text: toplineText, fontSize: toplineFontSize } : null,
+              refImages: refImages.map((img) => ({ dataUrl: img.dataUrl })),
             }),
           });
           if (res.ok) {
@@ -542,6 +547,29 @@ export function NewCarouselModal({ open, onClose, onCreate }: NewCarouselModalPr
                         onClick={() => setInfoImages((prev) => prev.filter((i) => i.id !== img.id))}
                         className="absolute top-0.5 right-0.5 bg-black/70 text-white rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Reference images */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs text-muted-foreground">References visuelles (carousels existants a imiter)</span>
+                <Button type="button" variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => handleImageUpload("ref")}>
+                  <Upload className="w-3 h-3" /> Ajouter
+                </Button>
+              </div>
+              {refImages.length > 0 && (
+                <div className="grid grid-cols-4 gap-1.5">
+                  {refImages.map((img) => (
+                    <div key={img.id} className="relative group">
+                      <img src={img.dataUrl} alt={img.name} className="w-full rounded-md object-cover" style={{ height: 60 }} />
+                      <button type="button" onClick={() => setRefImages((prev) => prev.filter((i) => i.id !== img.id))}
+                        className="absolute top-0.5 right-0.5 bg-black/70 text-white rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <X className="w-2.5 h-2.5" />
                       </button>
                     </div>

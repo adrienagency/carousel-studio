@@ -16,12 +16,28 @@ export interface GuestCarousel {
 }
 
 interface StoreData {
+  version?: number;
   carousels: GuestCarousel[];
   templates: GuestTemplate[];
   brandKits: GuestBrandKit[];
 }
 
 const STORAGE_KEY = "carousel-studio-guest-data";
+const STORAGE_VERSION = 2; // Increment when schema changes
+
+// Migrate data from old versions
+function migrateStore(data: any): StoreData {
+  if (!data) return { version: STORAGE_VERSION, carousels: [], templates: [], brandKits: [] };
+  const v = data.version || 1;
+  // v1 → v2: add images array to brand kits, add backgroundImageOpacity to slides
+  if (v < 2) {
+    (data.brandKits || []).forEach((kit: any) => {
+      if (!kit.images) kit.images = [];
+    });
+  }
+  data.version = STORAGE_VERSION;
+  return data;
+}
 
 let memoryStore: StoreData = { carousels: [], templates: [], brandKits: [] };
 let useMemory = false;
@@ -49,17 +65,23 @@ function getStore(): StoreData {
     const raw = _ls!.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const migrated = migrateStore(parsed);
+      // Save migrated version back if needed
+      if (parsed.version !== STORAGE_VERSION) {
+        try { _ls!.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
+      }
       return {
-        carousels: parsed.carousels || [],
-        templates: parsed.templates || [],
-        brandKits: parsed.brandKits || [],
+        version: STORAGE_VERSION,
+        carousels: migrated.carousels || [],
+        templates: migrated.templates || [],
+        brandKits: migrated.brandKits || [],
       };
     }
   } catch {
     useMemory = true;
     return memoryStore;
   }
-  return { carousels: [], templates: [], brandKits: [] };
+  return { version: STORAGE_VERSION, carousels: [], templates: [], brandKits: [] };
 }
 
 function saveStore(store: StoreData) {

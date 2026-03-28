@@ -282,8 +282,10 @@ function SlideRenderer({
               flexDirection:
                 slide.layoutDirection === "horizontal" ? "row" : "column",
               alignItems: slide.layoutAlign || "flex-start",
-              gap: (slide.layoutGap ?? 8) * scale,
-              padding: (slide.layoutPadding ?? 16) * scale,
+              justifyContent: "flex-start",
+              flexWrap: "nowrap" as const,
+              gap: (slide.layoutGap ?? 60) * scale,
+              padding: (slide.layoutPadding ?? 100) * scale,
             }
           : {}),
       }}
@@ -350,6 +352,8 @@ function SlideRenderer({
                 ? "2px solid hsl(239 84% 67%)"
                 : "none",
               outlineOffset: 1,
+              borderRadius: element.style.borderRadius ? element.style.borderRadius * scale : undefined,
+              overflow: element.style.borderRadius ? "hidden" as const : undefined,
               boxShadow: element.style.shadow
                 ? `${element.style.shadow.x}px ${element.style.shadow.y}px ${element.style.shadow.blur}px ${element.style.shadow.spread}px ${element.style.shadow.color}`
                 : undefined,
@@ -765,10 +769,10 @@ function PropertiesPanel() {
               </div>
               <div className="space-y-2">
                 <Label className="text-xs">
-                  Gap ({slide.layoutGap ?? 8}px)
+                  Gap ({slide.layoutGap ?? 60}px)
                 </Label>
                 <Slider
-                  value={[slide.layoutGap ?? 8]}
+                  value={[slide.layoutGap ?? 60]}
                   onValueChange={([v]) =>
                     updateSlide(activeSlideIndex, { layoutGap: v })
                   }
@@ -779,17 +783,17 @@ function PropertiesPanel() {
               </div>
               <div className="space-y-2">
                 <Label className="text-xs">
-                  Padding ({slide.layoutPadding ?? 16}px)
+                  Padding ({slide.layoutPadding ?? 100}px)
                 </Label>
                 <Slider
-                  value={[slide.layoutPadding ?? 16]}
+                  value={[slide.layoutPadding ?? 100]}
                   onValueChange={([v]) =>
                     updateSlide(activeSlideIndex, {
                       layoutPadding: v,
                     })
                   }
                   min={0}
-                  max={200}
+                  max={300}
                   step={1}
                 />
               </div>

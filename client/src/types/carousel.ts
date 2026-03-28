@@ -74,6 +74,7 @@ export interface Slide {
   backgroundColor: string;
   backgroundGradient?: GradientConfig;
   backgroundImage?: string;
+  backgroundImageOpacity?: number;
   autoLayout?: boolean;
   layoutDirection?: "vertical" | "horizontal";
   layoutAlign?: "flex-start" | "center" | "flex-end" | "stretch";
@@ -148,6 +149,7 @@ export function createTextElement(
       textAlign: "left",
       lineHeight: 1.2,
       letterSpacing: -0.02,
+      textAutoHeight: true,
     },
     ...opts,
   };

@@ -82,6 +82,12 @@ import {
   Upload,
   Languages,
   Palette,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -264,7 +270,7 @@ function SlideRenderer({
         backgroundColor: slide.backgroundColor,
         backgroundImage: slide.backgroundGradient
           ? gradientToCSS(slide.backgroundGradient)
-          : slide.backgroundImage ? `url(${slide.backgroundImage})` : undefined,
+          : undefined,
         backgroundSize: "cover",
         backgroundPosition: "center",
         ...(isAutoLayout
@@ -285,6 +291,21 @@ function SlideRenderer({
         }
       }}
     >
+      {/* Background image with opacity */}
+      {slide.backgroundImage && (
+        <div
+          style={{
+            position: "absolute" as const,
+            inset: 0,
+            backgroundImage: `url(${slide.backgroundImage})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            opacity: slide.backgroundImageOpacity ?? 1,
+            pointerEvents: "none" as const,
+            zIndex: 0,
+          }}
+        />
+      )}
       {sortedElements.map((element) => {
         const isSelected = interactive && selectedElementId === element.id;
         const isEditing = editingId === element.id;
@@ -292,9 +313,13 @@ function SlideRenderer({
         const positionStyle: React.CSSProperties = isAutoLayout
           ? {
               position: "relative" as const,
-              width: element.type === "image" ? "100%" : element.width * scale,
-              height: element.height * scale,
+              width: element.type === "image" || element.type === "text" ? "100%" : element.width * scale,
+              maxWidth: "100%",
+              height: element.type === "text" && (element.style.textAutoHeight !== false) ? "auto" : element.height * scale,
+              minHeight: element.type === "text" ? undefined : undefined,
               flexShrink: 0,
+              wordBreak: element.type === "text" ? "break-word" as const : undefined,
+              overflowWrap: element.type === "text" ? "break-word" as const : undefined,
               zIndex: element.zIndex ?? 0,
             }
           : {
@@ -472,6 +497,7 @@ function PropertiesPanel() {
     slides,
     activeSlideIndex,
     selectedElementId,
+    settings,
     updateSlide,
     updateElement,
     updateElementStyle,
@@ -564,19 +590,30 @@ function PropertiesPanel() {
               Ajouter une image
             </Button>
             {slide.backgroundImage && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full text-xs text-destructive"
-                onClick={() =>
-                  updateSlide(activeSlideIndex, {
-                    backgroundImage: undefined,
-                  })
-                }
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                Supprimer l'image
-              </Button>
+              <>
+                <div className="space-y-1">
+                  <Label className="text-xs">Opacite ({Math.round((slide.backgroundImageOpacity ?? 1) * 100)}%)</Label>
+                  <Slider
+                    value={[(slide.backgroundImageOpacity ?? 1) * 100]}
+                    onValueChange={([v]) => updateSlide(activeSlideIndex, { backgroundImageOpacity: v / 100 })}
+                    min={0} max={100} step={1}
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-xs text-destructive"
+                  onClick={() =>
+                    updateSlide(activeSlideIndex, {
+                      backgroundImage: undefined,
+                      backgroundImageOpacity: undefined,
+                    })
+                  }
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                  Supprimer l'image
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -942,6 +979,38 @@ function PropertiesPanel() {
               }
               className="h-8 text-xs"
             />
+          </div>
+        </div>
+
+        {/* Alignment buttons — Figma-style */}
+        <div className="mt-2">
+          <p className="text-xs font-medium text-muted-foreground mb-1.5">Alignement</p>
+          <div className="flex items-center gap-0.5">
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Aligner a gauche"
+              onClick={() => updateElement(element.id, { x: 0 })}>
+              <AlignStartVertical className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Centrer horizontalement"
+              onClick={() => updateElement(element.id, { x: Math.round((settings.width - element.width) / 2) })}>
+              <AlignCenterVertical className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Aligner a droite"
+              onClick={() => updateElement(element.id, { x: settings.width - element.width })}>
+              <AlignEndVertical className="w-3.5 h-3.5" />
+            </Button>
+            <Separator orientation="vertical" className="h-5 mx-0.5" />
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Aligner en haut"
+              onClick={() => updateElement(element.id, { y: 0 })}>
+              <AlignStartHorizontal className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Centrer verticalement"
+              onClick={() => updateElement(element.id, { y: Math.round((settings.height - element.height) / 2) })}>
+              <AlignCenterHorizontal className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Aligner en bas"
+              onClick={() => updateElement(element.id, { y: settings.height - element.height })}>
+              <AlignEndHorizontal className="w-3.5 h-3.5" />
+            </Button>
           </div>
         </div>
       </div>

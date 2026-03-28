@@ -166,39 +166,42 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
-  // ─── Google Fonts search ─────────────────────────────────────
+  // ─── Google Fonts search (cached) ──────────────────────────────
+  let cachedFontList: string[] = [];
+  let fontCacheTime = 0;
+  const FONT_CACHE_TTL = 3600000; // 1 hour
+
+  async function getAllGoogleFonts(): Promise<string[]> {
+    if (cachedFontList.length > 0 && Date.now() - fontCacheTime < FONT_CACHE_TTL) {
+      return cachedFontList;
+    }
+    try {
+      const metaRes = await fetch("https://fonts.google.com/metadata/fonts");
+      if (!metaRes.ok) return cachedFontList;
+      const text = await metaRes.text();
+      const jsonStr = text.replace(/^\)\]\}\'/m, "").trim();
+      const data = JSON.parse(jsonStr);
+      cachedFontList = (data.familyMetadataList || []).map((f: any) => f.family);
+      fontCacheTime = Date.now();
+      console.log(`Google Fonts: cached ${cachedFontList.length} families`);
+    } catch (err: any) {
+      console.error("Google Fonts fetch error:", err.message);
+    }
+    return cachedFontList;
+  }
+
+  // Pre-warm cache on startup
+  getAllGoogleFonts();
+
   app.get("/api/google-fonts", async (req, res) => {
     try {
       const q = String(req.query.q || "").trim();
-      if (!q) return res.json({ fonts: [] });
-
-      // Use the Google Fonts Developer API (free, no key needed for CSS endpoint)
-      // We'll fetch from the CSS API and parse font family names
-      const searchUrl = `https://fonts.google.com/metadata/fonts`;
-      const metaRes = await fetch(searchUrl);
-      if (!metaRes.ok) {
-        // Fallback: return popular fonts matching query
-        const popular = [
-          "Inter", "Roboto", "Open Sans", "Montserrat", "Poppins", "Lato",
-          "Oswald", "Raleway", "Playfair Display", "Merriweather",
-          "Nunito", "DM Sans", "Space Grotesk", "Source Sans 3",
-          "Work Sans", "Outfit", "Plus Jakarta Sans", "Barlow",
-          "Archivo", "Sora", "Manrope", "Bebas Neue", "Abril Fatface",
-          "Bitter", "Crimson Text", "Fira Sans", "Inconsolata",
-          "Josefin Sans", "Karla", "Libre Baskerville", "Mukta",
-          "Noto Sans", "PT Sans", "Quicksand", "Rubik",
-          "Titillium Web", "Ubuntu", "Vollkorn", "Yanone Kaffeesatz",
-        ];
-        const filtered = popular.filter(f => f.toLowerCase().includes(q.toLowerCase()));
-        return res.json({ fonts: filtered.slice(0, 20) });
+      const allFonts = await getAllGoogleFonts();
+      if (!q) {
+        // Return top 50 popular fonts
+        return res.json({ fonts: allFonts.slice(0, 50) });
       }
-
-      const text = await metaRes.text();
-      // The metadata response starts with )]}' — strip it
-      const jsonStr = text.replace(/^\)\]\}\'/m, "").trim();
-      const data = JSON.parse(jsonStr);
-      const allFamilies: string[] = (data.familyMetadataList || []).map((f: any) => f.family);
-      const matches = allFamilies
+      const matches = allFonts
         .filter((f: string) => f.toLowerCase().includes(q.toLowerCase()))
         .slice(0, 30);
       res.json({ fonts: matches });
@@ -353,6 +356,7 @@ Retourne UNIQUEMENT un JSON valide (pas de markdown, pas de commentaires). Forma
               textAlign: raw.type === "cover" || raw.type === "end" ? "center" : "left",
               lineHeight: el.role === "title" ? 1.15 : 1.5,
               letterSpacing: el.role === "title" ? -0.02 : 0,
+              textAutoHeight: true,
             },
           })),
         };

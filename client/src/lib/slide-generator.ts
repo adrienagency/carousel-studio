@@ -63,6 +63,7 @@ function makeTextElement(
       textAlign: opts.textAlign,
       lineHeight: opts.lineHeight ?? 1.3,
       letterSpacing: opts.letterSpacing ?? 0,
+      textAutoHeight: true,
     },
   };
 }

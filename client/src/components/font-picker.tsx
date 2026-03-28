@@ -42,17 +42,31 @@ export function FontPicker({ value, onChange, className }: FontPickerProps) {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [apiFonts, setApiFonts] = useState<string[]>([]);
+  const [apiFontsLoaded, setApiFontsLoaded] = useState(false);
+
   // Load current font for preview
   useEffect(() => {
     if (value) loadGoogleFont(value);
   }, [value]);
 
-  // Filtered popular fonts
+  // Load full list from API on first open
+  useEffect(() => {
+    if (open && !apiFontsLoaded) {
+      fetch("./api/google-fonts").then(r => r.json()).then(data => {
+        if (data.fonts?.length) setApiFonts(data.fonts);
+        setApiFontsLoaded(true);
+      }).catch(() => setApiFontsLoaded(true));
+    }
+  }, [open, apiFontsLoaded]);
+
+  // Filtered popular fonts (use API list if available)
+  const baseFonts = apiFonts.length > 0 ? apiFonts : POPULAR_FONTS;
   const filteredPopular = useMemo(() => {
-    if (!search.trim()) return POPULAR_FONTS;
+    if (!search.trim()) return baseFonts;
     const q = search.toLowerCase();
-    return POPULAR_FONTS.filter(f => f.toLowerCase().includes(q));
-  }, [search]);
+    return baseFonts.filter(f => f.toLowerCase().includes(q));
+  }, [search, baseFonts]);
 
   // Search Google Fonts API with debounce
   useEffect(() => {

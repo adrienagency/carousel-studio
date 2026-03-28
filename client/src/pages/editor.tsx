@@ -289,8 +289,7 @@ function SlideRenderer({
           ? {
               position: "relative" as const,
               width: element.type === "image" ? "100%" : element.width * scale,
-              height: element.type === "image" ? "auto" : element.height * scale,
-              minHeight: element.type === "image" ? element.height * scale * 0.3 : undefined,
+              height: element.height * scale,
               flexShrink: 0,
               zIndex: element.zIndex ?? 0,
             }
@@ -466,7 +465,10 @@ function PropertiesPanel() {
     sendBackward,
     bringToFront,
     sendToBack,
+    setSlides,
   } = useCarouselStore();
+
+  const brandKits = useState(() => guestStorage.getBrandKits())[0];
 
   const slide = slides[activeSlideIndex];
   const element = selectedElementId
@@ -672,6 +674,100 @@ function PropertiesPanel() {
             </>
           )}
         </div>
+
+        {/* Brand Kit quick access */}
+        {brandKits.length > 0 && (
+          <>
+            <Separator />
+            <div className="space-y-3">
+              <Label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Charte graphique</Label>
+              {brandKits.map((kit) => (
+                <div key={kit.id} className="space-y-2 rounded-lg border p-2.5">
+                  <span className="text-xs font-medium">{kit.name}</span>
+                  {/* Colors */}
+                  <div className="flex items-center gap-1">
+                    {[
+                      { color: kit.primaryColor, label: "Principale" },
+                      { color: kit.secondaryColor, label: "Secondaire" },
+                      { color: kit.accentColor, label: "Accent" },
+                      { color: kit.backgroundColor, label: "Fond" },
+                    ].map((c) => (
+                      <button
+                        key={c.label}
+                        title={`${c.label}: ${c.color} — Clic = fond de slide`}
+                        className="w-7 h-7 rounded-md border border-border hover:scale-110 transition-transform cursor-pointer"
+                        style={{ backgroundColor: c.color }}
+                        onClick={() => updateSlide(activeSlideIndex, { backgroundColor: c.color })}
+                      />
+                    ))}
+                  </div>
+                  {/* Fonts */}
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] text-muted-foreground">
+                      <strong>Titres:</strong> {kit.headingFont}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      <strong>Corps:</strong> {kit.bodyFont}
+                    </span>
+                  </div>
+                  {/* Apply to all slides */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs h-7"
+                    onClick={() => {
+                      const bgPalette = [
+                        kit.backgroundColor || "#FFFFFF",
+                        kit.primaryColor || "#1A1A2E",
+                        kit.backgroundColor || "#FFFFFF",
+                        kit.secondaryColor || "#6366F1",
+                        kit.backgroundColor || "#FFFFFF",
+                        kit.accentColor || "#F59E0B",
+                        kit.backgroundColor || "#FFFFFF",
+                        kit.primaryColor || "#1A1A2E",
+                        kit.primaryColor || "#1A1A2E",
+                      ];
+                      function contrast(bgHex: string): string {
+                        const hex = bgHex.replace("#", "");
+                        const r = parseInt(hex.substr(0, 2), 16) || 0;
+                        const g = parseInt(hex.substr(2, 2), 16) || 0;
+                        const b = parseInt(hex.substr(4, 2), 16) || 0;
+                        return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? "#1A1A2E" : "#FFFFFF";
+                      }
+                      const newSlides = slides.map((s, i) => {
+                        const bg = bgPalette[i % bgPalette.length];
+                        const txt = contrast(bg);
+                        return {
+                          ...s,
+                          backgroundColor: bg,
+                          elements: s.elements.map((el) =>
+                            el.type === "text"
+                              ? {
+                                  ...el,
+                                  style: {
+                                    ...el.style,
+                                    color: txt,
+                                    fontFamily:
+                                      el.style.fontWeight && el.style.fontWeight >= 700
+                                        ? kit.headingFont || el.style.fontFamily
+                                        : kit.bodyFont || el.style.fontFamily,
+                                  },
+                                }
+                              : el
+                          ),
+                        };
+                      });
+                      setSlides(newSlides);
+                    }}
+                  >
+                    <Palette className="w-3 h-3 mr-1" />
+                    Appliquer a toutes les slides
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     );
   }
